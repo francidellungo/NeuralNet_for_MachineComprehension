@@ -4,17 +4,27 @@ to read a document and answer general questions against it.
  While this is a relatively elementary task for a human,
   it's not that straightforward for AI models. 
 
-[Interactive demo](http://allgood.cs.washington.edu:1995/) by the authors of [[2]](#RNN).
+[Interactive demo](http://allgood.cs.washington.edu:1995/) by the authors of  the paper [[2]](#RNN).
   
 ## Dataset
 Dataset used [[1]](#TriviaQA). \
-The data can be downloaded from the [TriviaQA website](http://nlp.cs.washington.edu/triviaqa/)
+Create new directory: `mkdir dataset`\
+The data can be downloaded from the [TriviaQA website](http://nlp.cs.washington.edu/triviaqa/) or 
+with: `wget https://nlp.cs.washington.edu/triviaqa/data/triviaqa-rc.tar.gz`
+
+and extract with: `tar -xf triviaqa-rc.tar.gz -C dataset`
 
 ## Dependencies
 * tensorflow-gpu 2.0.0
 * gensim 3.8.0
 * numpy 1.18.1
 
+Dependencies can be installed with:
+`pip install -r requirements.txt`
+
+Create new directory: `mkdir glove` \
+Get glove pretrained: `wget https://nlp.stanford.edu/data/glove.6B.zip` \
+And extract it: `unzip glove.6B.zip -d ./glove`
 
 
 ## References
@@ -24,4 +34,10 @@ Joshi, Mandar and Choi, Eunsol and Weld, Daniel S. and Zettlemoyer, Luke (2017).
  Association for Computational Linguistics (ACL). Vancouver, Canada.
  
  <a id="RNN">[2]</a> 
-RNN paper
+Minjoon Seo, Aniruddha Kembhavi, Ali Farhadi and Hananneh Hajishirzi (2017). **Bidirectional Attention Flow for Machine Comprehension**.
+CoRR.
+
+ <a id="...">[3]</a> 
+...
+
+- glove paper: https://nlp.stanford.edu/pubs/glove.pdf
