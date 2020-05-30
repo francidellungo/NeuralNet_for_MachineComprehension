@@ -14,6 +14,12 @@ with: `wget https://nlp.cs.washington.edu/triviaqa/data/triviaqa-rc.tar.gz`
 
 and extract with: `tar -xf triviaqa-rc.tar.gz -C dataset`
 
+
+### SQuAD dataset
+ create new dir : `mkdir squad`\
+ download the data with:  `wget https://www.wolframcloud.com/objects/6b06e230-f56a-4244-8f23-382e74440a15`
+ 
+ 
 ## Dependencies
 * tensorflow-gpu 2.0.0
 * gensim 3.8.0
@@ -29,15 +35,22 @@ And extract it: `unzip glove.6B.zip -d ./glove`
 
 ## References
 <a id="TriviaQA">[1]</a> 
-Joshi, Mandar and Choi, Eunsol and Weld, Daniel S. and Zettlemoyer, Luke (2017). 
+Mandar Joshi, Eunsol Choi, Daniel S. Weld, Luke Zettlemoyer (2017). 
 **TriviaQA: A Large Scale Distantly Supervised Challenge Dataset for Reading Comprehension**.
  Association for Computational Linguistics (ACL). Vancouver, Canada.
  
  <a id="RNN">[2]</a> 
-Minjoon Seo, Aniruddha Kembhavi, Ali Farhadi and Hananneh Hajishirzi (2017). **Bidirectional Attention Flow for Machine Comprehension**.
+Minjoon Seo, Aniruddha Kembhavi, Ali Farhadi, Hananneh Hajishirzi (2017). **Bidirectional Attention Flow for Machine Comprehension**.
 CoRR.
 
- <a id="...">[3]</a> 
-...
+ <a id="GloVe">[3]</a> 
+Jeffrey Pennington,  Richard Socher, Christopher D. Manning (2014)
+**GloVe: Global Vectors for Word Representation**.
+Empirical Methods in Natural Language Processing (EMNLP).
 
-- glove paper: https://nlp.stanford.edu/pubs/glove.pdf
+ <a id="high">[4]</a> 
+ Rupesh Kumar Srivastava, Klaus Greff, Jürgen Schmidhuber (2015).
+**Highway Networks**. CoRR.
+
+ <a id="..">[5]</a> 
+ ...
