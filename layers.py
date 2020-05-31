@@ -1,5 +1,4 @@
 import tensorflow as tf
-from tensorflow import keras
 from preprocessing import create_glove_matrix
 from preprocessing import read_data, create_char_dict
 import numpy as np
@@ -91,7 +90,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         :param U: query matrix (J x 2d)
         :return: S: similarity matrix (T x J)
         """
-        print("H shape: ", H.shape, "; U shape: ", U.shape, "; W shape: ", self.Ws.shape)
+        print(" ---------> H shape: ", H.shape, "; U shape: ", U.shape, "; W shape: ", self.Ws.shape)
         duplicateH = tf.keras.backend.repeat_elements(H, rep=U.shape[-2], axis=0)
         # print("new H dim: ", duplicateH.shape)
         duplicateU = tf.tile(U, [H.shape[-2], 1])
@@ -111,13 +110,13 @@ class AttentionLayer(tf.keras.layers.Layer):
         Create C2Q attention matrix: which query words are most relevant to each context word.
         :param S: similarity matrix (T x J)
         :param U: query matrix (J x 2d)
-        :return: AttendedQuery: C2Q matrix (Ũ) (T x 2d)
+        :return: attended_query: C2Q matrix (Ũ) (T x 2d)
         """
         C2Q = tf.nn.softmax(S, axis=-1)  # attention weights on the query words
         # print("C2Q shape (T x J): ", C2Q.shape)
-        AttendedQuery = tf.matmul(C2Q, U)
-        # print("AttendedQuery shape (T x d): ", AttendedQuery.shape)
-        return AttendedQuery
+        attended_query = tf.matmul(C2Q, U)
+        # print("attended_query shape (T x d): ", attended_query.shape)
+        return attended_query
 
     def computeQuery2ContextAttention(self, S, H):
         """
@@ -125,28 +124,28 @@ class AttentionLayer(tf.keras.layers.Layer):
         and are therefore critical for answering the query.
         :param S: similarity matrix (T x J)
         :param H: context matrix (T x 2d)
-        :return: AttendedContext: Q2C matrix (H̃) (T x 2d)
+        :return: attended_context: Q2C matrix (H̃) (T x 2d)
         """
         Q2C = tf.nn.softmax(tf.reduce_max(S, axis=-1))
         # print("Q2C shape (T x 1): ", Q2C.shape)
         Q2C = tf.expand_dims(Q2C, -1)
-        AttendedContext = tf.matmul(Q2C, H, transpose_a=True)
-        # print("AttendedContext shape (1 x d): ", AttendedContext.shape)
-        AttendedContext = tf.tile(AttendedContext, [H.shape[-2], 1])
-        # print("AttendedContext shape (T x d): ", AttendedContext.shape)
-        return AttendedContext
+        attended_context = tf.matmul(Q2C, H, transpose_a=True)
+        # print("attended_context shape (1 x d): ", AttendedContext.shape)
+        attended_context = tf.tile(attended_context, [H.shape[-2], 1])
+        # print("attended_context shape (T x d): ", attended_context.shape)
+        return attended_context
 
-    def merge(self, H, AttendedQuery, AttendedContext):
+    def merge(self, H, attended_query, attended_context):
         """
         Combine the information obtained by the C2Q and Q2C attentions.
         Each column vector of G can be considered as the query-aware representation of each context word.
         :param H: context matrix (T x 2d)
-        :param AttendedQuery: C2Q matrix (Ũ) (T x 2d)
-        :param AttendedContext: Q2C matrix (H̃) (T x 2d)
+        :param attended_query: C2Q matrix (Ũ) (T x 2d)
+        :param attended_context: Q2C matrix (H̃) (T x 2d)
         :return: G: matrix (T x 8d)
         """
-        G = tf.concat([H, AttendedQuery, tf.multiply(H, AttendedQuery), tf.multiply(H, AttendedContext)], axis=-1)
-        # print(" G shape (T X 8d): ", G.shape)
+        G = tf.concat([H, attended_query, tf.multiply(H, attended_query), tf.multiply(H, attended_context)], axis=-1)
+        print(" G shape (T X 8d): ", G.shape)
         return G
 
     def call(self, H, U):
@@ -166,29 +165,25 @@ class AttentionLayer(tf.keras.layers.Layer):
         return G
 
 
-# source = "dataset/qa/web-example.json"
-# evidence = "dataset/evidence"
-# data = read_data(source, evidence)
+class OutputLayer(tf.keras.layers.Layer):
+    def __init__(self, lstm_units):
+        super(OutputLayer, self).__init__()
+        self.bi_lstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True), merge_mode='concat')
 
-# char_dict = create_char_dict()
-# print("len(char_dict): ", len(char_dict))
-# model = tf.keras.Sequential()
-# # model.add(CharacterEmbedding(7, 5, emb_dim=4))
-# model.add(tf.keras.layers.Embedding(7, 4, input_shape=(10,)))
-# model.add(tf.keras.layers.Conv1D(100, 5, activation='relu',
-#                                            padding='valid'))
-# # model.add(MaxOverTimePoolLayer())
-# # # model.add(tf.keras.layers.Embedding(7, 5))
-#
-# vec = np.array([[1, 2, 3, 0, 5, 5, 3,6,6,6], [2, 3, 4, 5, 5, 5, 3,7,8,9]])
-# y = [1, 0]
-# # print("vec: ", vec, len(vec), len(vec[0]))
-# # model(vec)
-# # # model.call(vec)
-# model.build(vec.shape)
-# model.summary()
+    def build(self, input_shape):
+        # M input_shape = (T X 2d) -> W dim: (10d, 1)
+        self.W_start = self.add_weight(shape=(input_shape[-1]*5, 1))
+        self.W_end = self.add_weight(shape=(input_shape[-1]*5, 1))
 
-# model = tf.keras.Sequential()
-# model.add(CharacterEmbedding(7, 30))
-# model.compile(optimizer='Adam', loss=tf.keras.losses.BinaryCrossentropy(), metrics=['accuracy'])
-# model.fit(vec, y)
+    def call(self, M, G):
+        p_start = tf.matmul(tf.concat([G, M], axis=-1), self.W_start)
+        p_start = tf.nn.softmax(p_start)
+
+        M = self.bi_lstm(tf.expand_dims(M, 0))
+        M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
+        # print(" new M shape ( Tx 2d): ", M.shape)
+        p_end = tf.matmul(tf.concat([G, M], axis=-1), self.W_end)
+        p_end = tf.nn.softmax(p_end)
+
+        return p_start, p_end
+
