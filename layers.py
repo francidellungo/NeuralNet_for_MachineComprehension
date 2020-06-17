@@ -27,6 +27,7 @@ class CharacterEmbedding(tf.keras.layers.Layer):
         self.conv_filters = conv_filters
         self.filter_width = filter_width
 
+        self.dropout = tf.keras.layers.Dropout(.2)
         self.emb = tf.keras.layers.Embedding(self.vocab_size, self.out_emb_dim)
         self.conv = tf.keras.layers.Conv1D(self.conv_filters, self.filter_width, activation='relu',
                                            padding='valid')  # , input_shape=(None, char_emb_dim)),
@@ -35,9 +36,11 @@ class CharacterEmbedding(tf.keras.layers.Layer):
     # def build(self, input_shape):
     #     super(CharacterEmbedding, self).build(input_shape)
 
-    def call(self, x):
+    def call(self, x, training=None):
         x = self.emb(x)
         x = self.conv(x)
+        if training:
+            x = self.dropout(x)
         x = self.max_pool(x)
         return x
 
@@ -51,10 +54,11 @@ class HighwayLayer(tf.keras.layers.Layer):
         # self.gate = tf.keras.layers.Dense(self.units2, activation='sigmoid')
 
     def build(self, input_shape):
-        self.Wh = self.add_weight(shape=(input_shape[1], input_shape[1]))
-        self.Wt = self.add_weight(shape=(input_shape[1], input_shape[1]))
-        self.bh = self.add_weight(shape=(input_shape[1],))
-        self.bt = self.add_weight(shape=(input_shape[1],))
+        self.Wh = self.add_weight(shape=(input_shape[1], input_shape[1]), trainable=True)
+        self.Wt = self.add_weight(shape=(input_shape[1], input_shape[1]), trainable=True)
+        self.bh = self.add_weight(shape=(input_shape[1],), trainable=True)
+        self.bt = self.add_weight(shape=(input_shape[1],), trainable=True)
+        super(HighwayLayer, self).build(input_shape)
 
     def call(self, x):
     #     gate = self.gate(input_)
@@ -80,8 +84,9 @@ class AttentionLayer(tf.keras.layers.Layer):
     def build(self, input_shape):
         #  dim W = (T * J, 3*dim)
         # print("input_shape (Attention Layer): ", input_shape)
-        self.Ws = self.add_weight(shape=(input_shape[-1]*3, 1))  # opzione1
+        self.Ws = self.add_weight(shape=(input_shape[-1]*3, 1), trainable=True)
         # self.Ws = self.add_weight(shape=(H.shape[0] * U.shape[0], input_shape[1]*3))  # opzione2 TODO: U.shape, T.shape -> input_shape
+        super(AttentionLayer, self).build(input_shape)
 
     def computeSimilarity(self, H, U):
         """
@@ -90,7 +95,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         :param U: query matrix (J x 2d)
         :return: S: similarity matrix (T x J)
         """
-        print(" ---------> H shape: ", H.shape, "; U shape: ", U.shape, "; W shape: ", self.Ws.shape)
+        # print(" ---------> H shape: ", H.shape, "; U shape: ", U.shape, "; W shape: ", self.Ws.shape)
         duplicateH = tf.keras.backend.repeat_elements(H, rep=U.shape[-2], axis=0)
         # print("new H dim: ", duplicateH.shape)
         duplicateU = tf.tile(U, [H.shape[-2], 1])
@@ -145,7 +150,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         :return: G: matrix (T x 8d)
         """
         G = tf.concat([H, attended_query, tf.multiply(H, attended_query), tf.multiply(H, attended_context)], axis=-1)
-        print(" G shape (T X 8d): ", G.shape)
+        # print(" G shape (T X 8d): ", G.shape)
         return G
 
     def call(self, H, U):
@@ -166,24 +171,25 @@ class AttentionLayer(tf.keras.layers.Layer):
 
 
 class OutputLayer(tf.keras.layers.Layer):
-    def __init__(self, lstm_units):
+    def __init__(self, lstm_units, dropout):
         super(OutputLayer, self).__init__()
-        self.bi_lstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True), merge_mode='concat')
+        self.bi_lstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True, dropout=dropout), merge_mode='concat')
 
     def build(self, input_shape):
         # M input_shape = (T X 2d) -> W dim: (10d, 1)
-        self.W_start = self.add_weight(shape=(input_shape[-1]*5, 1))
-        self.W_end = self.add_weight(shape=(input_shape[-1]*5, 1))
+        self.W_start = self.add_weight(shape=(input_shape[-1]*5, 1), trainable=True)
+        self.W_end = self.add_weight(shape=(input_shape[-1]*5, 1), trainable=True)
+        super(OutputLayer, self).build(input_shape)
 
     def call(self, M, G):
         p_start = tf.matmul(tf.concat([G, M], axis=-1), self.W_start)
-        p_start = tf.nn.softmax(p_start)
+        p_start = tf.nn.softmax(p_start, axis=-2)
 
         M = self.bi_lstm(tf.expand_dims(M, 0))
         M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
         # print(" new M shape ( Tx 2d): ", M.shape)
         p_end = tf.matmul(tf.concat([G, M], axis=-1), self.W_end)
-        p_end = tf.nn.softmax(p_end)
+        p_end = tf.nn.softmax(p_end, axis=-2)
 
         return p_start, p_end
 

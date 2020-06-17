@@ -1,5 +1,5 @@
 tensorflow-gpu==2.0.0
 numpy==1.18.1
 nltk==3.4.5
-pydot==1.4.1 #only to print model.png
-tensorflow-datasets==1.2.0
+scikit-learn
+tqdm==4.46.0
