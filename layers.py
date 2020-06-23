@@ -22,12 +22,15 @@ class CharacterEmbedding(tf.keras.layers.Layer):
         super(CharacterEmbedding, self).__init__()
         # num_channels = input_.get_shape()[-1]
         self.vocab_size = vocab_size + 1
-        self.out_emb_dim = emb_dim if emb_dim is not None else (self.vocab_size - (self.vocab_size // 5))
+        # self.out_emb_dim = emb_dim if emb_dim is not None else (self.vocab_size - (self.vocab_size // 5))
+        self.out_emb_dim = emb_dim if emb_dim is not None else int(self.vocab_size * .3 // 10)
+
         # print('vocab_size: ', self.vocab_size, ', out_emb dim: ', self.out_emb_dim)
         self.conv_filters = conv_filters
         self.filter_width = filter_width
 
-        self.dropout = tf.keras.layers.Dropout(.2)
+        self.dropout_conv = tf.keras.layers.Dropout(.2)
+
         self.emb = tf.keras.layers.Embedding(self.vocab_size, self.out_emb_dim)
         self.conv = tf.keras.layers.Conv1D(self.conv_filters, self.filter_width, activation='relu',
                                            padding='valid')  # , input_shape=(None, char_emb_dim)),
@@ -36,11 +39,10 @@ class CharacterEmbedding(tf.keras.layers.Layer):
     # def build(self, input_shape):
     #     super(CharacterEmbedding, self).build(input_shape)
 
-    def call(self, x, training=None):
+    def call(self, x, training=False):
         x = self.emb(x)
+        x = self.dropout_conv(x, training=training)
         x = self.conv(x)
-        if training:
-            x = self.dropout(x)
         x = self.max_pool(x)
         return x
 
@@ -175,20 +177,30 @@ class OutputLayer(tf.keras.layers.Layer):
         super(OutputLayer, self).__init__()
         self.bi_lstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True, dropout=dropout), merge_mode='concat')
 
+        self.dropout_out1 = tf.keras.layers.Dropout(.2)
+        self.dropout_out2 = tf.keras.layers.Dropout(.2)
+
     def build(self, input_shape):
         # M input_shape = (T X 2d) -> W dim: (10d, 1)
         self.W_start = self.add_weight(shape=(input_shape[-1]*5, 1), trainable=True)
         self.W_end = self.add_weight(shape=(input_shape[-1]*5, 1), trainable=True)
         super(OutputLayer, self).build(input_shape)
 
-    def call(self, M, G):
+    def call(self, M, G, training=False):
+        # qui dropout
+        G = self.dropout_out1(G, training=training)
+        M = self.dropout_out2(M, training=training)
+
         p_start = tf.matmul(tf.concat([G, M], axis=-1), self.W_start)
         p_start = tf.nn.softmax(p_start, axis=-2)
 
-        M = self.bi_lstm(tf.expand_dims(M, 0))
+        M = self.bi_lstm(tf.expand_dims(M, 0), training=training)
         M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
         # print(" new M shape ( Tx 2d): ", M.shape)
+
+        # qui dropout
         p_end = tf.matmul(tf.concat([G, M], axis=-1), self.W_end)
+
         p_end = tf.nn.softmax(p_end, axis=-2)
 
         return p_start, p_end

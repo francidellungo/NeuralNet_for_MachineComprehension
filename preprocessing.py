@@ -12,8 +12,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 verbose = True
 
 # le 2 righe sotto servono la prima volta altrimenti il tokenizer non funziona
-nltk.download('punkt')
-SENT_DETECTOR = nltk.data.load('tokenizers/punkt/english.pickle')
+    # nltk.download('punkt')
+    # SENT_DETECTOR = nltk.data.load('tokenizers/punkt/english.pickle')
 
 
 # java PTB tokenizer

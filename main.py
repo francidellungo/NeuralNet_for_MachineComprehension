@@ -3,6 +3,7 @@ import json
 import os
 import datetime
 import tensorflow as tf
+from sklearn.utils import shuffle
 # import tensorflow_datasets as tfds
 from preprocessing import read_squad_data, normalize_text, get_words_tokens, word2vec
 from layers import *
@@ -52,10 +53,10 @@ from model import BiDafModel
 
 # ---
 
-# os.environ['CUDA_VISIBLE_DEVICES'] = '0'
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 
-def main(epochs, batch_size, load_model, verbose):
+def main(epochs, batch_size, dataset_dim, load_model, verbose):
     # gpu settings
     gpus = tf.config.experimental.list_physical_devices('GPU')
     tf.config.experimental.set_memory_growth(gpus[0], True)
@@ -66,18 +67,39 @@ def main(epochs, batch_size, load_model, verbose):
 
     # local dataset locations
     source_path = "./dataset/squad/downloads/rajpurkar_SQuAD-explorer_train-v1.1NSdmOYa4KVr09_zf8bof8_ctB9YaIPSHyyOKbvkv2VU.json"
+    # source_path = "./DATA/squad/train-v1.1.json"
     example_source_path = "./dataset/squad/downloads/squad-example.json"
 
-    # dataset server locations
-    source_path = "./dataset/squad/rajpurkar_SQuAD-explorer_train-v1.1NSdmOYa4KVr09_zf8bof8_ctB9YaIPSHyyOKbvkv2VU.json"
-
+    # get squad dataset
     data, c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size = read_squad_data(source_path)
-    c_words, c_chars, q_words, q_chars, answer_start_end_idx = c_words[:551], c_chars[:551], q_words[:551], q_chars[:551], answer_start_end_idx[:551]
 
-    print("vocab_size {}, dataset dimension {}: ".format(vocab_size, len(c_words)))
-    model = BiDafModel(vocab_size)
+    # remove corrupted elements -> FIXME
+    c_words.pop(676), c_words.pop(660), c_chars.pop(676), c_chars.pop(660), q_words.pop(676), q_words.pop(660), q_chars.pop(676), q_chars.pop(660) ,answer_start_end_idx.pop(676), answer_start_end_idx.pop(660)
+    # shuffle data (random state = 0 for reproducibility)    
+    # c_words, c_chars, q_words, q_chars, answer_start_end_idx = shuffle(c_words, c_chars, q_words, q_chars, answer_start_end_idx, random_state=0)
+
+    # get a portion of dataset
+    if dataset_dim != 0:
+        c_words, c_chars, q_words, q_chars, answer_start_end_idx = c_words[:dataset_dim], c_chars[:dataset_dim], q_words[:dataset_dim], q_chars[:dataset_dim], answer_start_end_idx[:dataset_dim]
+
+    # split dataset train/val
+    end_train_idx = len(c_words) * 71 // 100  # 70-30
+    cw_train, cc_train, qw_train, qc_train, y_train = c_words[:end_train_idx], c_chars[:end_train_idx], q_words[
+                                                                                                        :end_train_idx], q_chars[
+                                                                                                                         :end_train_idx], answer_start_end_idx[
+                                                                                                                                          :end_train_idx]
     
-    model.train(c_words, c_chars, q_words, q_chars, answer_start_end_idx, epochs=epochs, batch_size=batch_size, training=True, verbose=verbose)
+    cw_val, cc_val, qw_val, qc_val, y_val = c_words[end_train_idx:], c_chars[end_train_idx:], q_words[
+                                                                                              end_train_idx:], q_chars[
+                                                                                                               end_train_idx:], answer_start_end_idx[
+                                                                                                                                end_train_idx:]
+
+    X_train, y_train = (cw_train, cc_train, qw_train, qc_train), y_train
+    X_val, y_val = (cw_val, cc_val, qw_val, qc_val), y_val
+    print("vocab_size {}, dataset dimension: {}-> train {}: ; validation: {}".format(vocab_size, len(c_words), len(y_train), len(y_val)))
+    model = BiDafModel(vocab_size)
+
+    model.train(X_train, y_train, X_val, y_val, epochs=epochs, batch_size=batch_size, training=True, verbose=verbose)
 
 
     # model.compile(optimizer='Adam', metrics=['accuracy'])
@@ -107,9 +129,12 @@ def main(epochs, batch_size, load_model, verbose):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     # epochs
-    parser.add_argument("-e", "--epochs", help="number of epochs for training", default=100, type=int)
+    parser.add_argument("-e", "--epochs", help="number of epochs for training", default=50, type=int)
     # batch_size
-    parser.add_argument("-b", "--batch_size", help="batch dimension", default=10, type=int)
+    parser.add_argument("-b", "--batch_size", help="batch dimension", default=5, type=int)
+    # dataset dimension
+    parser.add_argument("-d", "--dataset-dim", help="dimension of the dataset for training ", default=0, type=int)
+
     # save model path
     parser.add_argument("-cp", "--checkpoint-path", help="path where to save the weights", default=None)
 
@@ -117,5 +142,5 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--verbose", help="add comments", default=False, type=bool)
 
     args = parser.parse_args()
-    main(args.epochs, args.batch_size, args.checkpoint_path, args.verbose)
+    main(args.epochs, args.batch_size, args.dataset_dim, args.checkpoint_path, args.verbose)
 
