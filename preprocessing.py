@@ -34,31 +34,33 @@ verbose = True
 # print(type(result))
 
 def normalize_text(text):
-    return text.lower().replace("-", " ").replace("''", '"').replace("``", '"')
+    return text.lower().replace("''", '"').replace("``", '"')  # .replace("  ", " ").replace("-", " ")
 
 
 def get_words_tokens(text):
     text = normalize_text(text)
-    words = nltk.word_tokenize(text)  # PTB tokenizer
-    words = [word.replace("''", '"').replace("``", '"') for word in words]
+    tokens = nltk.word_tokenize(text)  # PTB tokenizer
+    tokens = [word.replace("''", '"').replace("``", '"') for word in tokens]
     # sentences = nltk.sent_tokenize(text)
-    return words  # , sentences
+    return tokens  # , sentences
 
 
-def char2vec(words):
+def char2vec(words, chars_dict):
     chars = [list(c) for c in words]
-    char_dict = create_char_dict()  # TODO optimize it-> create only once
     # create characters vector from char_dictionary (if key not in dict set len dict value)
-    c_vect = [[char_dict[c] if c in char_dict else len(char_dict) for c in char] for char in chars]
+    c_vect = [[chars_dict[c] if c in chars_dict else len(chars_dict) for c in char] for char in chars]
     # pad sequences and convert to tf Tensor
-    c_vect = tf.keras.preprocessing.sequence.pad_sequences(c_vect, padding='post',
+    c_vect = tf.keras.preprocessing.sequence.pad_sequences(c_vect, value=0, padding='post',
                                                            maxlen=None)  # TODO maxlen must be fixed?
-    # c_vec = tf.convert_to_tensor(c_vect, np.float32)
+    # if words length is minor than 5-> pad
+    if c_vect.shape[-1] < 5:
+        # print("  ")
+        c_vect = np.pad(c_vect, ((0, 0), (0, 5 - len(c_vect[0]) % 5)), 'constant', constant_values=(0))
     return c_vect
 
 
 def create_char_dict():
-    alphabet = "abcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}"
+    alphabet = "Aabcdefghijklmnopqrstuvwxyz0123456789,;.!?:'\"/\\|_@#$%^&*~`+-=<>()[]{}"
     char_dict = {}
     for i, char in enumerate(alphabet):
         char_dict[char] = i + 1
@@ -97,6 +99,18 @@ def word2vec(word, glove_dict):
     if vec is None:
         vec = np.random.rand(100)
     return vec
+
+
+def process_tokens(temp_tokens):
+    tokens = []
+    for token in temp_tokens:
+        flag = False
+        l = ("-", "\u2212", "\u2014", "\u2013", "/", "~", '"', "'", "\u201C", "\u2019", "\u201D", "\u2018", "\u00B0")
+        # \u2013 is en-dash. Used for number to nubmer
+        # l = ("-", "\u2212", "\u2014", "\u2013")
+        # l = ("\u2013",)
+        tokens.extend(re.split("([{}])".format("".join(l)), token))
+    return tokens
 
 
 def read_data(source_path, evidence_path, wikipedia=True, train=True):
@@ -162,10 +176,12 @@ def read_squad_data(source_path):
     query_words = []
     query_chars = []
     answer_start_end_idx = []
+    skipped_count = 0
+    qa_skipped = 0
 
     max_vocab_size = 0
 
-    for articles_id in tqdm(range(len(dataset)), desc='Preprocessing squad dataset'):
+    for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
         article_paragraphs = dataset['data'][articles_id]['paragraphs']
 
         for par_id in range(len(article_paragraphs)):
@@ -177,7 +193,13 @@ def read_squad_data(source_path):
             context_tokens = get_words_tokens(context)
             # print('context_tokens: ', len(context_tokens))
             # TODO:
+            if articles_id == 21 and par_id == 69:
+                print(" ")
             answer_map = get_char_word_loc_mapping(context, context_tokens)
+            if answer_map is None:
+                skipped_count += 1
+                qa_skipped += len(article_paragraphs[par_id]['qas'])
+                break
             context_word_vec = [word2vec(word, glove_matrix) for word in context_tokens]
             # context_char_vec = char2vec(context_tokens)
             context_char_vec, max_emb = char2vec_v2(context_tokens)
@@ -210,9 +232,112 @@ def read_squad_data(source_path):
 
                 examples.append(([context_word_vec, context_char_vec, question_word_vec, question_char_vec],
                                  [answer_start, answer_end]))
-    return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1
+    print("skipped elements:", skipped_count)
+    print("total qa skipped: ", qa_skipped)
+    return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1, skipped_count
 
 
+def read_squad_data_v2(source_path):
+    # if verbose: print("Preprocessing squad data...")
+    dataset = json.load(open(source_path, 'r'))
+    glove_matrix = create_glove_matrix('glove.6B.100d.txt')
+
+    examples = []
+    context_words = []
+    context_chars = []
+    query_words = []
+    query_chars = []
+    answer_start_end_idx = []
+    skipped_count = 0
+
+    # max_vocab_size = 0
+    chars_dict = create_char_dict()
+    # error = False
+
+    for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
+        article_paragraphs = dataset['data'][articles_id]['paragraphs']
+
+        for par_id in range(len(article_paragraphs)):
+            context = article_paragraphs[par_id]['context']
+            # if articles_id == 105 and par_id == 24:
+            #     print(" ")
+            # context = context.replace("''", '" ')
+            # context = context.replace("``", '" ')
+            # context = context.replace("-", ' ')
+            context = normalize_text(context)
+            # context.replace("''", '" ').replace("``", '" ')
+            context_tokens = get_words_tokens(context)
+            # context_tokens = process_tokens(context_tokens)
+            # context = context.lower()
+            # print('context_tokens: ', len(context_tokens))
+
+            # print("parid: ", par_id)
+            answer_map = get_char_word_loc_mapping(context, context_tokens)
+            # if answer_map is not None:
+            context_word_vec = [word2vec(word, glove_matrix) for word in context_tokens]
+            # context_char_vec = char2vec(context_tokens)
+            context_char_vec = char2vec(context_tokens, chars_dict)
+            # if max_emb > max_vocab_size: max_vocab_size = max_emb
+
+            qas = article_paragraphs[par_id]['qas']
+            for qid in range(len(qas)):
+                question = qas[qid]['question']
+                question_tokens = get_words_tokens(question)
+                question_word_vec = [word2vec(word, glove_matrix) for word in question_tokens]
+                question_char_vec = char2vec(question_tokens, chars_dict)
+                # if max_emb > max_vocab_size: max_vocab_size = max_emb
+                # print('question_word_vec: ', len(question_word_vec), len(question_word_vec[0]))
+
+                ans_id = 0
+                answer = qas[qid]['answers'][ans_id]['text']
+                answer_start = qas[qid]['answers'][ans_id]['answer_start']
+                answer_end = answer_start + len(answer)
+
+                # answer_tokens = get_words_tokens(answer)
+                # last_word_answer = len(answer_tokens[-1])
+                try:
+                    a_start_idx = int(answer_map[answer_start][1])
+                    a_end_idx = int(answer_map[answer_end - 1][1])
+                except KeyError:
+                    # print("answer problems: key not in dictionary")
+                    skipped_count += 1
+                    continue
+                    # error = True
+                except TypeError:
+                    # print("answer problems: answer map == None")
+                    skipped_count += 1
+                    continue
+                    # error = True
+                # a_end_idx = int(answer_map[answer_end - last_word_answer][1])
+                # if articles_id != 105 and par_id!= 24:
+                #     assert a_end_idx == int(answer_map[answer_end - last_word_answer][1]), "problems with answer end idx in preproc"
+
+                # if not error:
+                if question_char_vec.shape[-1] < 5:   # if word
+                    continue
+                answer_start_end_idx.append([a_start_idx, a_end_idx])
+
+                query_words.append(question_word_vec)
+                query_chars.append(np.array(question_char_vec, dtype='float32'))
+
+                context_words.append(context_word_vec)
+                context_chars.append(np.array(context_char_vec, dtype='float32'))
+
+                examples.append(([context_word_vec, context_char_vec, question_word_vec, question_char_vec],
+                                 [answer_start, answer_end]))
+                # error = False  # reset error flag
+                # if len(answer_start_end_idx) == 659:
+                #     print(" ")
+
+                # if question_char_vec.shape[-1] == 4:
+                #     print(" ")
+
+                # FIXME remove
+                # if len(answer_start_end_idx) == 200:
+                #     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
+
+    print("skipped elements:", skipped_count)
+    return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
 # ------------------------------------------------------------------------------------------ ##
 
 
@@ -428,9 +553,11 @@ def write_to_file(out_file, line):
 # print(data_list)
 # print(len(data_list['Question']['Word_emb']))
 
-# text = "Where in England was Dame Judi Dench born?"
+# text = "Wilhelm W\u00fcrfel and jay-z Where in England was Dame Judi Dench born? Zeitung praised his \"wealth of musical ideas\ "
 # tokens = get_words_tokens(text)
-# words =
+# print(tokens)
+# print(process_tokens(tokens))
+# print([process_tokens(token) for token in tokens])
 
 # source = "dataset/qa/web-example.json"
 # evidence = "dataset/evidence"

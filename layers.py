@@ -22,10 +22,9 @@ class CharacterEmbedding(tf.keras.layers.Layer):
         super(CharacterEmbedding, self).__init__()
         # num_channels = input_.get_shape()[-1]
         self.vocab_size = vocab_size + 1
-        # self.out_emb_dim = emb_dim if emb_dim is not None else (self.vocab_size - (self.vocab_size // 5))
-        self.out_emb_dim = emb_dim if emb_dim is not None else int(self.vocab_size * .3 // 10)
+        self.out_emb_dim = emb_dim if emb_dim is not None else (self.vocab_size - (self.vocab_size // 2))  # default 35
+        # self.out_emb_dim = emb_dim if emb_dim is not None else int(self.vocab_size * .3 // 10)
 
-        # print('vocab_size: ', self.vocab_size, ', out_emb dim: ', self.out_emb_dim)
         self.conv_filters = conv_filters
         self.filter_width = filter_width
 
@@ -35,9 +34,6 @@ class CharacterEmbedding(tf.keras.layers.Layer):
         self.conv = tf.keras.layers.Conv1D(self.conv_filters, self.filter_width, activation='relu',
                                            padding='valid')  # , input_shape=(None, char_emb_dim)),
         self.max_pool = MaxOverTimePoolLayer()
-
-    # def build(self, input_shape):
-    #     super(CharacterEmbedding, self).build(input_shape)
 
     def call(self, x, training=False):
         x = self.emb(x)
@@ -63,13 +59,6 @@ class HighwayLayer(tf.keras.layers.Layer):
         super(HighwayLayer, self).build(input_shape)
 
     def call(self, x):
-    #     gate = self.gate(input_)
-    #     trans = self.trans(input_)
-    #     out = tf.add(tf.matmul(gate, trans), tf.matmul((1 - gate), input_))
-    #     # out = gate * trans + (1 - gate) * input
-    #     return out
-    #
-    # def highway_layer(self, x):
         H = tf.nn.relu(tf.matmul(x, self.Wh) + self.bh, name='activation')
         T = tf.sigmoid(tf.matmul(x, self.Wt) + self.bt, name='transform_gate')
         # C = tf.sub(1.0, T, name="carry_gate")
@@ -151,21 +140,28 @@ class AttentionLayer(tf.keras.layers.Layer):
         :param attended_context: Q2C matrix (H̃) (T x 2d)
         :return: G: matrix (T x 8d)
         """
-        G = tf.concat([H, attended_query, tf.multiply(H, attended_query), tf.multiply(H, attended_context)], axis=-1)
-        # print(" G shape (T X 8d): ", G.shape)
+        if attended_context is not None:
+            G = tf.concat([H, attended_query, tf.multiply(H, attended_query), tf.multiply(H, attended_context)], axis=-1)
+        else:
+            G = tf.concat([H, attended_query, tf.multiply(H, attended_query)], axis=-1)  # q2c ablation
+            # to be fixed FIXME
+        # print(" G shape (T X 8d) / (T x 6d) in case of q2c ablation : ", G.shape)
         return G
 
-    def call(self, H, U):
-
+    def call(self, H, U, q2c_attention, c2q_attention):
         # Similarity matrix (S) dimension: TxJ
         S = self.computeSimilarity(H, U)
 
         # C2Q attention
-        C2Q = self.computeContext2QueryAttention(S, U)
-
+        if c2q_attention:
+            C2Q = self.computeContext2QueryAttention(S, U)
+        else:
+            C2Q = " da completare"  # to be fixed FIXME
         # Q2C attention
-        Q2C = self.computeQuery2ContextAttention(S, H)
-
+        if q2c_attention:
+            Q2C = self.computeQuery2ContextAttention(S, H)
+        else:
+            Q2C = None  # to be fixed FIXME
         # Merge C2Q (Ũ) and Q2C (H̃) to obtain G
         G = self.merge(H, C2Q, Q2C)
 

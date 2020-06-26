@@ -16,12 +16,12 @@ and extract with: `tar -xf triviaqa-rc.tar.gz -C dataset`
 
 
 ### SQuAD dataset
- create new dir : `mkdir squad`\
+ create new dir : `mkdir dataset/squad`\
  download the data with:  `wget https://www.wolframcloud.com/objects/6b06e230-f56a-4244-8f23-382e74440a15`
  
  
 ## Dependencies
-* tensorflow-gpu 2.0.0
+* tensorflow-gpu 2.0.1
 * gensim 3.8.0
 * numpy 1.18.1
 

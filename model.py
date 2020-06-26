@@ -24,6 +24,7 @@ class BiDafModel(tf.keras.Model):
 
         # set optimizer
         self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=0.5)
+        # self.ema = tf.train.ExponentialMovingAverage(decay=0.999)
 
         self.char_emb = CharacterEmbedding(self.emb_dim, self.conv_filters, filter_width=conv_filter_width,
                                            emb_dim=emb_dim)
@@ -45,7 +46,7 @@ class BiDafModel(tf.keras.Model):
         self.checkpoints_dir = "checkpoints/my_checkpoint"
         self.saved_model_dir = "saved_model/my_model"
 
-    def train(self, X_train, y_train, X_val, y_val, epochs, batch_size, training, verbose=False):
+    def train(self, X_train, y_train, X_val, y_val, use_char_emb, use_word_emb, q2c_attention, c2q_attention, epochs, batch_size, training, verbose=False):
         # print("train")
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -72,8 +73,6 @@ class BiDafModel(tf.keras.Model):
             epoch_em_score = []
             epoch_f1_score = []
 
-            keras_losses = []
-
             # shuffle data
             cw_train, cc_train, qw_train, qc_train, y_train = shuffle(cw_train, cc_train, qw_train, qc_train, y_train)
             cw_val, cc_val, qw_val, qc_val, y_val = shuffle(cw_val, cc_val, qw_val, qc_val, y_val)  # , random_state=0) for reproducibility
@@ -88,41 +87,23 @@ class BiDafModel(tf.keras.Model):
                 if verbose: print("batch dimension: ", len(y_true))
                 # print("epoch : {}, batch num {} / {}; batch start-end idx {}-{} , batch dim: {}".format(epoch, batch, num_batches - 1, start_idx, end_idx, len(c_words[start_idx:end_idx])))
                 batch_loss, y_pred, keras_loss = self.train_step(cw_train[start_idx:end_idx], cc_train[start_idx:end_idx],
-                                                     qw_train[start_idx:end_idx], qc_train[start_idx:end_idx], y_true,
+                                                     qw_train[start_idx:end_idx], qc_train[start_idx:end_idx], y_true, use_char_emb, use_word_emb, q2c_attention, c2q_attention,
                                                      training, verbose)
-                # print("training loss: ", batch_loss)
 
                 epoch_loss.append(batch_loss)
                 epoch_em_score.append(em_metric(y_true, y_pred))
                 epoch_f1_score.append(f1_metric(y_true, y_pred))
-                keras_losses.append(keras_loss)
 
             # Validation
-            val_loss, y_pred, keras_loss_v = self.validation_step(cw_val, cc_val, qw_val, qc_val, y_val, verbose)
+            val_loss, y_pred, keras_loss_v = self.validation_step(cw_val, cc_val, qw_val, qc_val, y_val, use_char_emb, use_word_emb, q2c_attention, c2q_attention, verbose)
             # validation metrics
             val_em = em_metric(y_val, y_pred)
             val_f1 = f1_metric(y_val, y_pred)
-            # val_em.append(em_metric(y_true, y_pred[0]))
-            # val_f1.append(f1_metric(y_true, y_pred[0]))
 
-
-            # End epoch
-            # train_loss_results.append(epoch_loss_avg.result())
-            # train_accuracy_results.append(epoch_accuracy.result())
-
-            # if epoch % 50 == 0:
-            #     print("Epoch {:03d}: Loss: {:.3f}, Accuracy: {:.3%}".format(epoch,
-            #                                                                 epoch_loss_avg.result(),
-            #                                                                 epoch_accuracy.result()))
-
-            # if epoch % 2 == 0:
-            #     print("Epoch {:03d}: Loss: {:.3f}".format(epoch, epoch_loss_avg.result()))
-
-            # train metrics
+            # training metrics mean
             epoch_loss = np.mean(epoch_loss)
             epoch_em_score = np.mean(epoch_em_score)
             epoch_f1_score = np.mean(epoch_f1_score)
-            keras_loss_t = np.mean(keras_losses)
 
             # model checkpoint - to track the best validation accuracy (maybe with accuracy not with loss)
             # if val_f1 > best_f1_acc:
@@ -175,21 +156,24 @@ class BiDafModel(tf.keras.Model):
     #                                                                      float(ChebNet.accuracy_mask(y, y_pred))))
 
     # @tf.function
-    def train_step(self, c_words, c_chars, q_words, q_chars, y, training, verbose):
+    def train_step(self, c_words, c_chars, q_words, q_chars, y, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training, verbose):
         if verbose: print("train step")
         with tf.GradientTape() as tape:
             if verbose: print("forward pass")
-            y_pred = self.call(c_words, c_chars, q_words, q_chars, training, verbose)  # forward pass
+            y_pred = self.call(c_words, c_chars, q_words, q_chars, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training, verbose)  # forward pass
             if verbose: print("compute loss")
             loss, custom_loss = computeLoss(y, y_pred)  # calculate loss
         if verbose: print("backward pass; number of trainable weights: ", len(self.trainable_weights))
         grads = tape.gradient(loss, self.trainable_weights)  # backpropagation
         if verbose: print("optimizer.apply_gradients")
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))  # optimizer step
+        # with tf.control_dependencies(grads):
+        #     ema_op = self.ema.apply(grads)
+
         return loss, y_pred, custom_loss
 
-    def validation_step(self, c_words, c_chars, q_words, q_chars, y, verbose):
-        y_pred = self.call(c_words, c_chars, q_words, q_chars, training=False, verbose=verbose)
+    def validation_step(self, c_words, c_chars, q_words, q_chars, y, use_char_emb, use_word_emb, q2c_attention, c2q_attention, verbose):
+        y_pred = self.call(c_words, c_chars, q_words, q_chars, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training=False, verbose=verbose)
         loss, keras_loss = computeLoss(y, y_pred)
         return loss, y_pred, keras_loss
 
@@ -212,21 +196,34 @@ class BiDafModel(tf.keras.Model):
             tf.summary.scalar("test f1 accuracy", f1_score)
 
 
-    def call(self, c_word_input, c_char_input, q_word_input, q_char_input, training=False, verbose=False):
+    def call(self, c_word_input, c_char_input, q_word_input, q_char_input, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training=False, verbose=False):
         # first c stands for context second for char, q stands for query
         # TODO use tf.split()
         # query, context = input1, input2
         # c_char_input = tf.convert_to_tensor(c_char_input)
         y_pred = []
         # ragged = None
-        for i in range(len(c_word_input)):
-            # if verbose: print("{}: char embedding".format(i))
-            cc = self.char_emb(c_char_input[i], training)
-            qc = self.char_emb(q_char_input[i], training)
+        assert use_char_emb or use_word_emb, "one of the two embedding must be used"
 
-            # concatenate word representation vector given by chars and word representation vector by GloVe
-            context = tf.concat([cc, c_word_input[i]], axis=-1)
-            query = tf.concat([qc, q_word_input[i]], axis=-1)
+        for i in range(len(c_word_input)):
+
+            if use_char_emb:
+                # get character level representation of each word
+                cc = self.char_emb(c_char_input[i], training)
+                qc = self.char_emb(q_char_input[i], training)
+
+            if use_char_emb and use_word_emb:
+                # concatenate word representation vector given by chars and word representation vector by GloVe
+                context = tf.concat([cc, c_word_input[i]], axis=-1)
+                query = tf.concat([qc, q_word_input[i]], axis=-1)
+            elif not use_char_emb:
+                # ablation on char embedding
+                context = tf.convert_to_tensor(c_word_input[i])
+                query = tf.convert_to_tensor(q_word_input[i])
+            else:
+                # ablation on word embedding
+                context = cc
+                query = qc
 
             # if verbose: print("{}: highway".format(i))
             # highway layers
@@ -244,7 +241,7 @@ class BiDafModel(tf.keras.Model):
 
             # if verbose: print("{}: attention".format(i))
             # Attention Layer -> G matrix (T x 8d)
-            G = self.attention(H, U)
+            G = self.attention(H, U, q2c_attention, c2q_attention)
 
             # if verbose: print("{}: modeling layer".format(i))
             M = self.modeling_layer2(self.modeling_layer1(tf.expand_dims(G, 0), training=training), training=training)
