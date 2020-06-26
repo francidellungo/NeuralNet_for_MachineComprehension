@@ -19,6 +19,9 @@ and extract with: `tar -xf triviaqa-rc.tar.gz -C dataset`
  create new dir : `mkdir dataset/squad`\
  download the data with:  `wget https://www.wolframcloud.com/objects/6b06e230-f56a-4244-8f23-382e74440a15`
  
+ train `wget https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json -O dataset/squad/train-v1.1.json`
+ dev `wget https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json -O dataset/squad/dev-v1.1.json`
+ 
  
 ## Dependencies
 * tensorflow-gpu 2.0.1
