@@ -7,7 +7,7 @@ import numpy as np
 import nltk
 import re
 from tqdm import tqdm
-
+from utils import plotHistogramOfLengths
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 verbose = True
 
@@ -50,12 +50,12 @@ def char2vec(words, chars_dict):
     # create characters vector from char_dictionary (if key not in dict set len dict value)
     c_vect = [[chars_dict[c] if c in chars_dict else len(chars_dict) for c in char] for char in chars]
     # pad sequences and convert to tf Tensor
-    c_vect = tf.keras.preprocessing.sequence.pad_sequences(c_vect, value=0, padding='post',
+    c_vect = tf.keras.preprocessing.sequence.pad_sequences(c_vect, value=0, padding='pre',
                                                            maxlen=None)  # TODO maxlen must be fixed?
     # if words length is minor than 5-> pad
     if c_vect.shape[-1] < 5:
         # print("  ")
-        c_vect = np.pad(c_vect, ((0, 0), (0, 5 - len(c_vect[0]) % 5)), 'constant', constant_values=(0))
+        c_vect = np.pad(c_vect, ((0, 0), (5 - len(c_vect[0]) % 5, 0)), 'constant', constant_values=(0))  # padding "pre"
     return c_vect
 
 
@@ -237,7 +237,7 @@ def read_squad_data(source_path):
     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1, skipped_count
 
 
-def read_squad_data_v2(source_path):
+def readSquadDataPadding(source_path):
     # if verbose: print("Preprocessing squad data...")
     dataset = json.load(open(source_path, 'r'))
     glove_matrix = create_glove_matrix('glove.6B.100d.txt')
@@ -250,9 +250,13 @@ def read_squad_data_v2(source_path):
     answer_start_end_idx = []
     skipped_count = 0
 
-    # max_vocab_size = 0
+    # create lengths statistics for padding
+    num_context_words = []
+    num_query_words = []
+    context_chars_lens = []
+    query_chars_lens = []
+
     chars_dict = create_char_dict()
-    # error = False
 
     for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
         article_paragraphs = dataset['data'][articles_id]['paragraphs']
@@ -302,41 +306,65 @@ def read_squad_data_v2(source_path):
                     # print("answer problems: key not in dictionary")
                     skipped_count += 1
                     continue
-                    # error = True
                 except TypeError:
                     # print("answer problems: answer map == None")
                     skipped_count += 1
                     continue
-                    # error = True
                 # a_end_idx = int(answer_map[answer_end - last_word_answer][1])
-                # if articles_id != 105 and par_id!= 24:
-                #     assert a_end_idx == int(answer_map[answer_end - last_word_answer][1]), "problems with answer end idx in preproc"
 
-                # if not error:
                 if question_char_vec.shape[-1] < 5:   # if word
                     continue
                 answer_start_end_idx.append([a_start_idx, a_end_idx])
 
+                # create lists of ord and chars for queries and context
                 query_words.append(question_word_vec)
-                query_chars.append(np.array(question_char_vec, dtype='float32'))
+                query_chars.append(question_char_vec)
 
                 context_words.append(context_word_vec)
-                context_chars.append(np.array(context_char_vec, dtype='float32'))
+                context_chars.append(context_char_vec)
 
                 examples.append(([context_word_vec, context_char_vec, question_word_vec, question_char_vec],
                                  [answer_start, answer_end]))
-                # error = False  # reset error flag
-                # if len(answer_start_end_idx) == 659:
-                #     print(" ")
 
-                # if question_char_vec.shape[-1] == 4:
-                #     print(" ")
+                # lengths statistics
+                num_context_words.append(len(context_word_vec))
+                num_query_words.append(len(question_word_vec))
+                context_chars_lens = context_chars_lens + [len(q[0]) for q in context_chars]
+                query_chars_lens = query_chars_lens + [len(q[0]) for q in query_chars]
 
-                # FIXME remove
-                # if len(answer_start_end_idx) == 200:
+                if len(answer_start_end_idx) == 30:
+                    print(" ")
+        if articles_id == 3:
+            break
+
+                # # FIXME remove
+                # if len(answer_start_end_idx) == 50:
+                #     print("num context words: {}, mean: {}".format(num_context_words, np.mean(num_context_words)))
+                #     print("num query words: {}, mean: {}".format(num_query_words, np.mean(num_query_words)))
+                #
+                #     # pad all to create tensors
+                #     # FIXME
+                #     context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32")
+                #     a = tf.ragged.constant(context_chars, dtype="float32")
+                #     tf.keras.preprocessing.sequence.pad_sequences(a)
+                #     context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
+                #     query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
+                #     query_chars = tf.keras.preprocessing.sequence.pad_sequences(query_chars, dtype="float32")
                 #     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
 
     print("skipped elements:", skipped_count)
+
+    plotHistogramOfLengths([num_context_words, num_query_words, context_chars_lens, query_chars_lens], ['num_context_words', 'num_query_words', 'context_chars_lens', 'query_chars_lens'])
+
+    # pad all to create tensors FIXME
+    context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32")
+    context_chars = tf.ragged.constant(context_chars, dtype='float32').to_tensor()
+    # context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
+    query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
+    query_chars = tf.ragged.constant(query_chars, dtype='float32').to_tensor()
+
+    print('conversion to tensors done')
+
     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
 # ------------------------------------------------------------------------------------------ ##
 
@@ -504,7 +532,6 @@ def write_to_file(out_file, line):
 
 # text = "the top-five 4.5$ legend \"Venite Ad Me Omnes\" super. z."
 
-# text = "on april 4, 2008, beyoncé married jay z. she publicly revealed their marriage in a video montage at the listening party for her third studio album, i am... sasha fierce, in manhattan's sony club on october 22, 2008."
 # text2 = "jay z."
 # # text= 'Hello, my name is "Francesca" and i don't like vegetables'
 # # text = text.replace("-", ' ')

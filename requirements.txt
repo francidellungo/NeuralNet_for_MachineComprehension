@@ -1,5 +1,4 @@
 tensorflow-gpu==2.0.1
 numpy==1.18.1
 nltk==3.4.5
-scikit-learn
 tqdm==4.46.0

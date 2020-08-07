@@ -68,37 +68,6 @@ def computeLoss(y_true, y_pred):
     return loss, mean
 
 
-def computeLoss_ragged(y_true, y_pred_ragged):
-    # print("compute loss")
-    start, end = 0, 1
-    # print("y true shape: ", len(y_true), len(y_true[0]), "\n y pred shape: ", len(y_pred_ragged), " ", len(y_pred_ragged[0]))
-    y_true_start_idx = [[idx, start, yi[start]] for idx, yi in enumerate(y_true)]
-    y_true_end_idx = [[idx, end, yi[end]] for idx, yi in enumerate(y_true)]
-    print("new y true start dim:", len(y_true_start_idx), len(y_true_start_idx[0]))
-
-    start_probs = tf.gather_nd(y_pred_ragged, y_true_start_idx)
-    end_probs = tf.gather_nd(y_pred_ragged, y_true_end_idx)
-    probs = tf.concat(start_probs, end_probs)
-    loss = tf.keras.losses.binary_crossentropy(np.ones(len(probs)), probs).numpy()  # compute loss
-    return loss
-
-
-def getRagged(tensors_list):
-    """return a ragged tensor from a list of tensors"""
-    assert len(tensors_list) > 0
-    print(tensors_list)
-    print(tensors_list[0])
-    ragged = tf.ragged.constant(tensors_list[0].numpy())
-    for t in range(1, len(tensors_list)):
-        ragged = tf.concat([ragged, [tensors_list[t].numpy()]], axis=0)
-    return ragged
-
-# a = tf.convert_to_tensor([[1, 2], [3,4]])
-# b = tf.convert_to_tensor([[1, 2, 3], [1, 2, 3]])
-# print(getRagged([a, b]))
-# <tf.RaggedTensor [[1, 2], [1, 2, 3]]>
-
-
 def get_answer(y_start, y_end):
     # predicted vector values for start and end
     y_end = tf.transpose(y_end)
@@ -106,3 +75,25 @@ def get_answer(y_start, y_end):
     prod_matrix = np.triu(prod_matrix)  # get upper triangle matrix of prod_matrix
     start_idx, end_idx = np.unravel_index(prod_matrix.argmax(), prod_matrix.shape)
     return start_idx, end_idx
+
+
+# def scheduler(epoch, current_learning_rate):
+#     if epoch > 2:
+#         return current_learning_rate / 10
+#     else:
+#         return current_learning_rate
+#         # return min(current_learning_rate, 0.001)
+
+
+def plotHistogramOfLengths(data_sets, data_labels):
+    import matplotlib.pyplot as plt
+    number_of_bins = 10
+    for idx, data in enumerate(data_sets):
+        plt.clf()
+        plt.hist(data, number_of_bins, alpha=0.5, label=data_labels[idx])
+        print('{}: max: {}, min: {}, mean:{}'.format(data_labels[idx], np.max(data_sets[idx]), np.min(data_sets[idx]), np.mean(data_sets[idx])))
+        # plt.gca().set(title='Length Histogram - context words', ylabel='Frequency', xlabel='Words length')
+        plt.legend(loc='upper right')
+        plt.show()
+        # eventually save figures with plt.savefig(path/image.png)
+

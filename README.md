@@ -55,5 +55,6 @@ Empirical Methods in Natural Language Processing (EMNLP).
  Rupesh Kumar Srivastava, Klaus Greff, Jürgen Schmidhuber (2015).
 **Highway Networks**. CoRR.
 
- <a id="..">[5]</a> 
- ...
+ <a id="squad">[5]</a> 
+ Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev and Percy Liang (2016)
+ **SQuAD: 100,000+ Questions for Machine Comprehension of Text**.  Empirical Methods in Natural Language Processing (EMNLP).

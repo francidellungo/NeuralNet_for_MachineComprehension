@@ -1,21 +1,21 @@
 import tensorflow as tf
-from tensorflow import keras
-from layers import CharacterEmbedding, HighwayLayer, AttentionLayer, OutputLayer
-from preprocessing import read_data
+from layersTensors import CharacterEmbedding, HighwayLayer, AttentionLayer, OutputLayer
+from preprocessing import read_data, readSquadDataPadding
 import os
 import numpy as np
 from tqdm import tqdm
 import datetime
-from sklearn.utils import shuffle
+# from sklearn.utils import shuffle
 from utils import em_metric, f1_metric, computeLoss, get_answer
-from tensorboard.plugins.custom_scalar import layout_pb2
-from tensorboard.summary.v1 import custom_scalar_pb
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 
 
+# os.environ['CUDA_VISIBLE_DEVICES'] = '-1'  #FIXME remove
+
+
 class BiDafModel(tf.keras.Model):
-    def __init__(self, char_vocab_size, conv_filters=100, conv_filter_width=5, dropout_lstm=.2, emb_dim=None):
+    def __init__(self, char_vocab_size, conv_filters=100, conv_filter_width=5, dropout_lstm=.2, emb_dim=8):
         super(BiDafModel, self).__init__()
         self.d = 100
         self.emb_dim = char_vocab_size
@@ -23,7 +23,9 @@ class BiDafModel(tf.keras.Model):
         self.lstm_units = self.d
 
         # set optimizer
-        self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=0.5)
+        # self.lr = tf.keras.callbacks.LearningRateScheduler(scheduler)
+        # tf.keras.callbacks.
+        self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=0.5, decay=0.999)
         # self.ema = tf.train.ExponentialMovingAverage(decay=0.999)
 
         self.char_emb = CharacterEmbedding(self.emb_dim, self.conv_filters, filter_width=conv_filter_width,
@@ -46,7 +48,8 @@ class BiDafModel(tf.keras.Model):
         self.checkpoints_dir = "checkpoints/my_checkpoint"
         self.saved_model_dir = "saved_model/my_model"
 
-    def train(self, X_train, y_train, X_val, y_val, use_char_emb, use_word_emb, q2c_attention, c2q_attention, epochs, batch_size, training, verbose=False):
+    def train(self, X_train, y_train, X_val, y_val, use_char_emb, use_word_emb, q2c_attention, c2q_attention, epochs,
+              batch_size, training, verbose=False):
         # print("train")
         current_time = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
 
@@ -73,29 +76,46 @@ class BiDafModel(tf.keras.Model):
             epoch_em_score = []
             epoch_f1_score = []
 
-            # shuffle data
-            cw_train, cc_train, qw_train, qc_train, y_train = shuffle(cw_train, cc_train, qw_train, qc_train, y_train)
-            cw_val, cc_val, qw_val, qc_val, y_val = shuffle(cw_val, cc_val, qw_val, qc_val, y_val)  # , random_state=0) for reproducibility
-            # c_words, c_chars, q_words, q_chars, y = shuffle(c_words, c_chars, q_words, q_chars, y)
+            """ shuffle data """
+            # shuffle training data
+            cw_train = tf.random.shuffle(cw_train)
+            cc_train = tf.random.shuffle(cc_train)
+            qw_train = tf.random.shuffle(qw_train)
+            qc_train = tf.random.shuffle(qc_train)
+            y_train = tf.random.shuffle(y_train)
 
-            # Training loop
+            # shuffle validation data
+            cw_val = tf.random.shuffle(cw_val)
+            cc_val = tf.random.shuffle(cc_val)
+            qw_val = tf.random.shuffle(qw_val)
+            qc_val = tf.random.shuffle(qc_val)
+            y_val = tf.random.shuffle(y_val)
+
+            # learning rate scheduler
+            self.lr_scheduler(epoch)
+
+            """ Training """
+            # training loop
             for batch in range(num_batches_t):
                 if verbose: print("{} Batch number {} / {}".format(epoch, batch, num_batches_t))
                 start_idx = batch * batch_size
                 end_idx = ((batch + 1) * batch_size if (batch + 1) * batch_size < len(cw_train) else len(cw_train))
                 y_true = y_train[start_idx:end_idx]
                 if verbose: print("batch dimension: ", len(y_true))
-                # print("epoch : {}, batch num {} / {}; batch start-end idx {}-{} , batch dim: {}".format(epoch, batch, num_batches - 1, start_idx, end_idx, len(c_words[start_idx:end_idx])))
-                batch_loss, y_pred, keras_loss = self.train_step(cw_train[start_idx:end_idx], cc_train[start_idx:end_idx],
-                                                     qw_train[start_idx:end_idx], qc_train[start_idx:end_idx], y_true, use_char_emb, use_word_emb, q2c_attention, c2q_attention,
-                                                     training, verbose)
+                batch_loss, y_pred, keras_loss = self.train_step(cw_train[start_idx:end_idx],
+                                                                 cc_train[start_idx:end_idx],
+                                                                 qw_train[start_idx:end_idx],
+                                                                 qc_train[start_idx:end_idx], y_true, use_char_emb,
+                                                                 use_word_emb, q2c_attention, c2q_attention,
+                                                                 training, verbose)
 
                 epoch_loss.append(batch_loss)
                 epoch_em_score.append(em_metric(y_true, y_pred))
                 epoch_f1_score.append(f1_metric(y_true, y_pred))
 
             # Validation
-            val_loss, y_pred, keras_loss_v = self.validation_step(cw_val, cc_val, qw_val, qc_val, y_val, use_char_emb, use_word_emb, q2c_attention, c2q_attention, verbose)
+            val_loss, y_pred, keras_loss_v = self.validation_step(cw_val, cc_val, qw_val, qc_val, y_val, use_char_emb,
+                                                                  use_word_emb, q2c_attention, c2q_attention, verbose)
             # validation metrics
             val_em = em_metric(y_val, y_pred)
             val_f1 = f1_metric(y_val, y_pred)
@@ -137,6 +157,12 @@ class BiDafModel(tf.keras.Model):
                 tf.summary.scalar('em/val', val_em, step=epoch)
                 tf.summary.scalar('f1/val', val_f1, step=epoch)
 
+                # learning rate
+                print(float(tf.keras.backend.get_value(self.optimizer.learning_rate)))
+                tf.summary.scalar("learning rate", float(tf.keras.backend.get_value(self.optimizer.learning_rate)),
+                                  step=epoch)
+                # tf.summary.scalar("learning rate", self.optimizer.lr.numpy(), step=epoch)
+
             print(
                 "epoch:{epoch_num}, train_loss: {train_loss}, EM score: {em_score}, F1 score: {f1_score}"
                     .format(epoch_num=epoch, train_loss=epoch_loss, em_score=epoch_em_score, f1_score=epoch_f1_score))
@@ -156,24 +182,31 @@ class BiDafModel(tf.keras.Model):
     #                                                                      float(ChebNet.accuracy_mask(y, y_pred))))
 
     # @tf.function
-    def train_step(self, c_words, c_chars, q_words, q_chars, y, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training, verbose):
+    def train_step(self, c_words, c_chars, q_words, q_chars, y, use_char_emb, use_word_emb, q2c_attention,
+                   c2q_attention, training, verbose):
         if verbose: print("train step")
         with tf.GradientTape() as tape:
             if verbose: print("forward pass")
-            y_pred = self.call(c_words, c_chars, q_words, q_chars, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training, verbose)  # forward pass
+            y_pred = self.call_t(c_words, c_chars, q_words, q_chars, use_char_emb, use_word_emb, q2c_attention,
+                               c2q_attention, training, verbose)  # forward pass
             if verbose: print("compute loss")
             loss, custom_loss = computeLoss(y, y_pred)  # calculate loss
+
         if verbose: print("backward pass; number of trainable weights: ", len(self.trainable_weights))
         grads = tape.gradient(loss, self.trainable_weights)  # backpropagation
         if verbose: print("optimizer.apply_gradients")
         self.optimizer.apply_gradients(zip(grads, self.trainable_weights))  # optimizer step
-        # with tf.control_dependencies(grads):
-        #     ema_op = self.ema.apply(grads)
+        # versione equivalente (ma non funzionante) con minimize()
+        # opt_op = self.optimizer.minimize(computeLoss(y, y_pred), self.trainable_weights)
+        # with tf.control_dependencies([opt_op]):
+        #     training_op = self.
 
         return loss, y_pred, custom_loss
 
-    def validation_step(self, c_words, c_chars, q_words, q_chars, y, use_char_emb, use_word_emb, q2c_attention, c2q_attention, verbose):
-        y_pred = self.call(c_words, c_chars, q_words, q_chars, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training=False, verbose=verbose)
+    def validation_step(self, c_words, c_chars, q_words, q_chars, y, use_char_emb, use_word_emb, q2c_attention,
+                        c2q_attention, verbose):
+        y_pred = self.call(c_words, c_chars, q_words, q_chars, use_char_emb, use_word_emb, q2c_attention, c2q_attention,
+                           training=False, verbose=verbose)
         loss, keras_loss = computeLoss(y, y_pred)
         return loss, y_pred, keras_loss
 
@@ -195,8 +228,8 @@ class BiDafModel(tf.keras.Model):
             tf.summary.scalar("test em accuracy", em_score)
             tf.summary.scalar("test f1 accuracy", f1_score)
 
-
-    def call(self, c_word_input, c_char_input, q_word_input, q_char_input, use_char_emb, use_word_emb, q2c_attention, c2q_attention, training=False, verbose=False):
+    def call(self, c_word_input, c_char_input, q_word_input, q_char_input, use_char_emb, use_word_emb, q2c_attention,
+             c2q_attention, training=False, verbose=False):
         # first c stands for context second for char, q stands for query
         # TODO use tf.split()
         # query, context = input1, input2
@@ -263,6 +296,107 @@ class BiDafModel(tf.keras.Model):
             #     ragged = tf.RaggedTensor.from_tensor([[tf.squeeze(tf.transpose(p_start)), tf.squeeze(tf.transpose(p_end))]])
 
         return y_pred
+
+    def call_t(self, c_word_input, c_char_input, q_word_input, q_char_input, use_char_emb, use_word_emb,
+               q2c_attention, c2q_attention, training=False, verbose=False):
+        # first c stands for context second for char, q stands for query
+        # TODO use tf.split()
+        y_pred = []
+        assert use_char_emb or use_word_emb, "at least one of the two embedding must be used"
+
+        # for i in range(len(c_word_input)):
+        if use_char_emb:
+            # get character level representation of each word
+            cc = self.char_emb(c_char_input, training)
+            qc = self.char_emb(q_char_input, training)
+
+        if use_char_emb and use_word_emb:
+            # concatenate word representation vector given by chars and word representation vector by GloVe
+            context = tf.concat([cc, c_word_input[i]], axis=-1)
+            query = tf.concat([qc, q_word_input[i]], axis=-1)
+        elif not use_char_emb:
+            # ablation on char embedding
+            context = tf.convert_to_tensor(c_word_input[i])
+            query = tf.convert_to_tensor(q_word_input[i])
+        else:
+            # ablation on word embedding
+            context = cc
+            query = qc
+
+        # if verbose: print("{}: highway".format(i))
+        # highway layers
+        context = self.highway2(self.highway1(context))
+        query = self.highway2(self.highway1(query))
+
+        # if verbose: print("{}: biLSTM".format(i))
+        # Contextual Embedding Layer (bidirectional LSTM)
+        H = self.bi_lstm(tf.expand_dims(context, 0), training=training)
+        U = self.bi_lstm(tf.expand_dims(query, 0), training=training)
+        # context matrix (H) dimension: 2d x T, query matrix (U) dimension: 2d x J
+
+        H = tf.squeeze(H, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
+        U = tf.squeeze(U, [0])
+
+        # if verbose: print("{}: attention".format(i))
+        # Attention Layer -> G matrix (T x 8d)
+        G = self.attention(H, U, q2c_attention, c2q_attention)
+
+        # if verbose: print("{}: modeling layer".format(i))
+        M = self.modeling_layer2(self.modeling_layer1(tf.expand_dims(G, 0), training=training), training=training)
+
+        # print("M shape (T x 2d): ", M.shape)
+        M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
+
+        # if verbose: print("{}: output layer".format(i))
+        p_start, p_end = self.output_layer_(M, G, training)
+        # print("output dims: (T, 1) :", p_start.shape, p_end.shape)
+        # print("output layer: p start: {}, p end: {}".format(p_start, p_end))
+        y_pred.append([p_start, p_end])
+
+        ## versione ragged tensor:
+        # y_predi = [p_start, p_end]
+        # if ragged is not None:
+        #     ragged = tf.concat([ragged, [[tf.squeeze(tf.transpose(p_start)), tf.squeeze(tf.transpose(p_end))]]], axis=2)
+        # else:
+        #     ragged = tf.RaggedTensor.from_tensor([[tf.squeeze(tf.transpose(p_start)), tf.squeeze(tf.transpose(p_end))]])
+
+        return y_pred
+
+    def lr_scheduler(self, epoch, logs=None):
+        if not hasattr(self.optimizer, "lr"):
+            raise ValueError('Optimizer must have a "lr" attribute.')
+        # Get the current learning rate from model's optimizer.
+        lr = float(tf.keras.backend.get_value(self.optimizer.learning_rate))
+        # Call schedule function to get the scheduled learning rate.
+        scheduled_lr = 0.5
+        if epoch == 12:
+            scheduled_lr = lr / 100
+            tf.keras.backend.set_value(self.optimizer.lr, scheduled_lr)
+        elif epoch == 7:
+            scheduled_lr = lr / 10
+            tf.keras.backend.set_value(self.optimizer.lr, scheduled_lr)
+        # Set the value back to the optimizer before this epoch starts
+        # print("\nEpoch %05d: Learning rate is %6.4f." % (epoch, scheduled_lr))
+
+# ----------------------------------------------------------------------------------------------------------------------
+
+# source_path = "./dataset/squad/downloads/rajpurkar_SQuAD-explorer_train-v1.1NSdmOYa4KVr09_zf8bof8_ctB9YaIPSHyyOKbvkv2VU.json"
+# # source_path = "./DATA/squad/train-v1.1.json"
+# # source_path = "./DATA/squad/dev-v1.1.json"
+#
+# _, c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = read_squad_data_v2(source_path)
+#
+# c_words = tf.ragged.constant(c_words)
+# c_chars= tf.ragged.constant(c_chars)
+# q_words= tf.ragged.constant(q_words)
+# q_chars= tf.ragged.constant(q_chars)
+# answer_start_end_idx = tf.constant(answer_start_end_idx)
+#
+# model = BiDafModel(80)
+# model.call_ragged(c_words, c_chars, q_words, q_chars, True, True, True, True)
+
+
+# ----------------------------------------------------------------------------------------------------------------------
 
 # tf.keras.layers.Attention()
 
