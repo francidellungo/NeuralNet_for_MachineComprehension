@@ -1,3 +1,5 @@
+import pickle
+
 import tensorflow as tf
 import sys
 import os
@@ -268,6 +270,18 @@ def plotAttentionMatrix(matrix, el_idx, dataset_info_path, labelsx=None, labelsy
 def getMaxKValues(x, k):
     return np.partition(x, -k)[-k:]
 
+
+def savePickle(filename, obj):
+    outfile = open(filename, 'wb')
+    pickle.dump(obj, outfile)
+    outfile.close()
+
+
+def loadPickle(filename):
+    infile = open(filename, 'rb')
+    obj = pickle.load(infile)
+    infile.close()
+    return obj
 
 ##  ---------------------  ##
 

@@ -12,7 +12,7 @@ from model import BiDafModel
 # os.environ['CUDA_VISIBLE_DEVICES'] = '-1'
 
 
-def main(epochs, batch_size, dataset_dim, load_model, verbose, use_char_emb, use_word_emb, q2c_attention, c2q_attention, dynamic_attention):
+def main(epochs, batch_size, dataset_dim, training_set_dim, validation_set_dim, load_model, verbose, use_char_emb, use_word_emb, q2c_attention, c2q_attention, dynamic_attention):
     # gpu settings
     gpus = tf.config.experimental.list_physical_devices('GPU')
     tf.config.experimental.set_memory_growth(gpus[0], True)
@@ -30,7 +30,7 @@ def main(epochs, batch_size, dataset_dim, load_model, verbose, use_char_emb, use
 
     # get squad dataset
     """ training set """
-    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = preprocessingSquad(train_source_path, dataset_len=200)
+    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = preprocessingSquad(train_source_path, dataset_len=training_set_dim)
 
     # get a portion of dataset
     if dataset_dim != 0:
@@ -39,7 +39,7 @@ def main(epochs, batch_size, dataset_dim, load_model, verbose, use_char_emb, use
     cw_train, cc_train, qw_train, qc_train, y_train = c_words, c_chars, q_words, q_chars, answer_start_end_idx
 
     """ validation set """
-    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = preprocessingSquad(dev_source_path, dataset_len=100, is_validation_set=True)
+    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = preprocessingSquad(dev_source_path, dataset_len=validation_set_dim, is_validation_set=True)
     cw_val, cc_val, qw_val, qc_val, y_val = c_words, c_chars, q_words, q_chars, answer_start_end_idx
 
     X_train, y_train = (cw_train, cc_train, qw_train, qc_train), y_train
@@ -83,6 +83,10 @@ if __name__ == '__main__':
     # dataset dimension
     parser.add_argument("-d", "--dataset-dim", help="dimension of the dataset for training ", default=0, type=int)
 
+    # dataset training dim
+    parser.add_argument("-td", "--training-set-dim", help="dimension of the dataset for training ", default=float('inf'), type=int)  # , default=float('inf')
+    parser.add_argument("-vd", "--validation-set-dim", help="dimension of the dataset for validation ", default=float('inf'), type=int)
+
     # save model path
     parser.add_argument("-cp", "--checkpoint-path", help="path where to save the weights", default=None)
 
@@ -97,5 +101,5 @@ if __name__ == '__main__':
     parser.add_argument("-dyn_att", "--dynamic_attention", help="use dynamic attention?", default=False, type=bool)
 
     args = parser.parse_args()
-    main(args.epochs, args.batch_size, args.dataset_dim, args.checkpoint_path, args.verbose, args.use_char_emb, args.use_word_emb, args.q2c_attention, args.c2q_attention, args.dynamic_attention)
+    main(args.epochs, args.batch_size, args.dataset_dim, args.training_set_dim, args.validation_set_dim, args.checkpoint_path, args.verbose, args.use_char_emb, args.use_word_emb, args.q2c_attention, args.c2q_attention, args.dynamic_attention)
 

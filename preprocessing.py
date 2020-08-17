@@ -7,8 +7,7 @@ import numpy as np
 import nltk
 import re
 from tqdm import tqdm
-import pickle
-from utils import plotHistogramOfLengths, pad3dSequence
+from utils import plotHistogramOfLengths, pad3dSequence, savePickle, loadPickle
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 verbose = True
@@ -240,8 +239,25 @@ def read_squad_data(source_path):
     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1, skipped_count
 
 
-def preprocessingSquad(source_path, dataset_len=float('inf'), is_validation_set=False):
+def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf'), is_validation_set=False):
     # TODO complete
+    # check if dataset already preprocessed
+    filename = os.path.join(save_path,
+                            'training_set/{}'.format(dataset_len)) if not is_validation_set else os.path.join(save_path,
+                                                                                                              'validation_set/{}'.format(
+                                                                                                                  dataset_len))
+
+    if os.path.exists(filename):
+        print('Dataset already preprocessed')
+        context_words = loadPickle(os.path.join(filename, 'context_words'))
+        context_chars = loadPickle(os.path.join(filename, 'context_chars'))
+        query_words = loadPickle(os.path.join(filename, 'query_words'))
+        query_chars = loadPickle(os.path.join(filename, 'query_chars'))
+        answer_start_end_idx = loadPickle(os.path.join(filename, 'answer_start_end_idx'))
+        vocab_size = loadPickle(os.path.join(filename, 'vocab_size'))
+
+        return context_words, context_chars, query_words, query_chars, answer_start_end_idx, vocab_size, None
+
     context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens = readSquadDataPadding(
         source_path, dataset_len=dataset_len, is_validation_set=is_validation_set)
 
@@ -282,9 +298,9 @@ def preprocessingSquad(source_path, dataset_len=float('inf'), is_validation_set=
 
     # save preprocessed data
     if verbose: print('Saving data...')
-    # TODO adjust len(...)
-    filename = './save/training_set/{}'.format(
-        len(context_words)) if not is_validation_set else './save/validation_set/{}'.format(len(context_words))
+    # filename = './save/training_set/{}'.format(
+    #     dataset_len) if not is_validation_set else './save/validation_set/{}'.format(dataset_len)
+
     if not os.path.exists(filename):
         os.makedirs(filename)
     savePickle(os.path.join(filename, 'context_words'), context_words)
@@ -292,6 +308,7 @@ def preprocessingSquad(source_path, dataset_len=float('inf'), is_validation_set=
     savePickle(os.path.join(filename, 'query_words'), query_words)
     savePickle(os.path.join(filename, 'query_chars'), query_chars)
     savePickle(os.path.join(filename, 'answer_start_end_idx'), answers_idx)
+    savePickle(os.path.join(filename, 'vocab_size'), vocab_size)
 
     return context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count
 
@@ -460,19 +477,6 @@ def readSquadDataPadding(source_path, dataset_len, is_validation_set=False):
 
 
 # ------------------------------------------------------------------------------------------ ##article_paragraphs
-
-def savePickle(filename, obj):
-    outfile = open(filename, 'wb')
-    pickle.dump(obj, outfile)
-    outfile.close()
-
-
-def loadPickle(filename):
-    infile = open(filename, 'rb')
-    obj = pickle.load(infile)
-    infile.close()
-    return obj
-
 
 def list_topics(data):
     # for squad dataset
