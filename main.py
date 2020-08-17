@@ -5,7 +5,7 @@ import datetime
 import numpy as np
 import tensorflow as tf
 # import tensorflow_datasets as tfds
-from preprocessing import readSquadDataPadding
+from preprocessing import preprocessingSquad
 from model import BiDafModel
 # from layers import *
 
@@ -27,11 +27,10 @@ def main(epochs, batch_size, dataset_dim, load_model, verbose, use_char_emb, use
     # source_path = "./DATA/squad/train-v1.1.json"
     # source_path = "./DATA/squad/dev-v1.1.json"
     dev_source_path = "./dataset/squad/downloads/rajpurkar_SQuAD-explorer_dev-v1.1lapqUtXWpzVWM2Z1PKUEkqZYAx2nTzAaxSOLA5Zpcsk.json"
-    # example_source_path = "./dataset/squad/downloads/squad-example.json"
 
     # get squad dataset
     """ training set """
-    data, c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = readSquadDataPadding(train_source_path)
+    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = preprocessingSquad(train_source_path, dataset_len=200)
 
     # get a portion of dataset
     if dataset_dim != 0:
@@ -40,7 +39,7 @@ def main(epochs, batch_size, dataset_dim, load_model, verbose, use_char_emb, use
     cw_train, cc_train, qw_train, qc_train, y_train = c_words, c_chars, q_words, q_chars, answer_start_end_idx
 
     """ validation set """
-    data, c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = readSquadDataPadding(dev_source_path)
+    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = preprocessingSquad(dev_source_path, dataset_len=100, is_validation_set=True)
     cw_val, cc_val, qw_val, qc_val, y_val = c_words, c_chars, q_words, q_chars, answer_start_end_idx
 
     X_train, y_train = (cw_train, cc_train, qw_train, qc_train), y_train
@@ -80,7 +79,7 @@ if __name__ == '__main__':
     # epochs
     parser.add_argument("-e", "--epochs", help="number of epochs for training", default=5, type=int)
     # batch_size
-    parser.add_argument("-b", "--batch_size", help="batch dimension", default=3, type=int)
+    parser.add_argument("-b", "--batch_size", help="batch dimension", default=1, type=int)
     # dataset dimension
     parser.add_argument("-d", "--dataset-dim", help="dimension of the dataset for training ", default=0, type=int)
 

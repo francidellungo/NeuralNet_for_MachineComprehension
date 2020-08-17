@@ -50,17 +50,22 @@ class HighwayLayer(tf.keras.layers.Layer):
         # self.gate = tf.keras.layers.Dense(self.units2, activation='sigmoid')
 
     def build(self, input_shape):
-        self.Wh = self.add_weight(shape=(input_shape[1], input_shape[1]), trainable=True)
-        self.Wt = self.add_weight(shape=(input_shape[1], input_shape[1]), trainable=True)
-        self.bh = self.add_weight(shape=(input_shape[1],), trainable=True)
-        self.bt = self.add_weight(shape=(input_shape[1],), trainable=True)
+        self.Wh = self.add_weight(shape=(input_shape[-1], input_shape[-1]), trainable=True)
+        self.Wt = self.add_weight(shape=(input_shape[-1], input_shape[-1]), trainable=True)
+        self.bh = self.add_weight(shape=(input_shape[-1],), trainable=True)
+        self.bt = self.add_weight(shape=(input_shape[-1],), trainable=True)
         super(HighwayLayer, self).build(input_shape)
 
     def call(self, x):
-        H = tf.nn.relu(tf.matmul(x, self.Wh) + self.bh, name='activation')
+        n, m = x.shape[-2], x.shape[-1]
+
+        x = tf.reshape(x, [-1, m])  # x.shape [b, n, m] --> [b*n, m]
+        H = tf.nn.relu(tf.matmul(x, self.Wh) + self.bh, name='activation')  # x.shape [b*n, m] , Wh.shape [m, m] --> matmul: [b*n , m]
         T = tf.sigmoid(tf.matmul(x, self.Wt) + self.bt, name='transform_gate')
         # C = tf.sub(1.0, T, name="carry_gate")
-
+        H = tf.reshape(H, [-1, n, m])  # [b*n, m] --> [b, n, m]
+        T = tf.reshape(T, [-1, n, m])
+        x = tf.reshape(x, [-1, n, m])
         y = tf.add(tf.multiply(H, T), tf.multiply(x, 1-T), name='y')  # y = (H * T) + (x * C)
         return y
 
@@ -85,9 +90,11 @@ class AttentionLayer(tf.keras.layers.Layer):
         :return: S: similarity matrix (T x J)
         """
         # print(" ---------> H shape: ", H.shape, "; U shape: ", U.shape, "; W shape: ", self.Ws.shape)
-        duplicateH = tf.keras.backend.repeat_elements(H, rep=U.shape[-2], axis=0)
+        duplicateH = tf.keras.backend.repeat_elements(H, rep=U.shape[-2], axis=1)  # repeats each rows J times
         # print("new H dim: ", duplicateH.shape)
-        duplicateU = tf.tile(U, [H.shape[-2], 1])
+        #TODO problems here
+        print('U.shape: ', U.shape, ' , finale duplicateU shape: [{}, {}]'.format(U.shape[0], U.shape[1]*H.shape[-2], U.shape[2]))
+        duplicateU = tf.tile(U, [1, H.shape[-2], 1])  # repeats matrix U T times
         # print(" new U dim: ", duplicateU.shape)
         C = tf.concat([duplicateH, duplicateU, tf.multiply(duplicateH, duplicateU)], axis=-1)
         # print("C dim: ", C.shape)
@@ -95,7 +102,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         # opzione giusta: stesso vettore di pesi Ws (funzione \alpha) che moltiplica ogni riga della matrice creata
         S = tf.matmul(C, self.Ws)
         # print("S shape: ", S.shape)
-        S = tf.reshape(S, [H.shape[-2], U.shape[-2]])
+        S = tf.reshape(S, [H.shape[0], H.shape[-2], U.shape[-2]])
         # print("S reshaped: ", S.shape)
         return S
 
@@ -125,7 +132,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         Q2C = tf.expand_dims(Q2C, -1)
         attended_context = tf.matmul(Q2C, H, transpose_a=True)
         # print("attended_context shape (1 x d): ", AttendedContext.shape)
-        attended_context = tf.tile(attended_context, [H.shape[-2], 1])
+        attended_context = tf.tile(attended_context, [1, H.shape[-2], 1])
         # print("attended_context shape (T x d): ", attended_context.shape)
         return attended_context
 
@@ -163,7 +170,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         # Merge C2Q (Ũ) and Q2C (H̃) to obtain G
         G = self.merge(H, C2Q, Q2C)
 
-        return G
+        return G, S
 
 
 class OutputLayer(tf.keras.layers.Layer):
@@ -186,16 +193,16 @@ class OutputLayer(tf.keras.layers.Layer):
         M = self.dropout_out2(M, training=training)
 
         p_start = tf.matmul(tf.concat([G, M], axis=-1), self.W_start)
-        p_start = tf.nn.softmax(p_start, axis=-2)
+        p_start = tf.squeeze(tf.nn.softmax(p_start, axis=-2))
 
-        M = self.bi_lstm(tf.expand_dims(M, 0), training=training)
-        M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
+        M = self.bi_lstm(M, training=training)
+        # M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
         # print(" new M shape ( Tx 2d): ", M.shape)
 
         # qui dropout
         p_end = tf.matmul(tf.concat([G, M], axis=-1), self.W_end)
 
-        p_end = tf.nn.softmax(p_end, axis=-2)
+        p_end = tf.squeeze(tf.nn.softmax(p_end, axis=-2))
 
         return p_start, p_end
 

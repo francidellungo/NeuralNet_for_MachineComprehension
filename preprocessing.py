@@ -7,13 +7,16 @@ import numpy as np
 import nltk
 import re
 from tqdm import tqdm
-from utils import plotHistogramOfLengths
+import pickle
+from utils import plotHistogramOfLengths, pad3dSequence
+
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 verbose = True
 
+
 # le 2 righe sotto servono la prima volta altrimenti il tokenizer non funziona
-    # nltk.download('punkt')
-    # SENT_DETECTOR = nltk.data.load('tokenizers/punkt/english.pickle')
+# nltk.download('punkt')
+# SENT_DETECTOR = nltk.data.load('tokenizers/punkt/english.pickle')
 
 
 # java PTB tokenizer
@@ -237,12 +240,70 @@ def read_squad_data(source_path):
     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1, skipped_count
 
 
-def readSquadDataPadding(source_path):
+def preprocessingSquad(source_path, dataset_len=float('inf'), is_validation_set=False):
+    # TODO complete
+    context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens = readSquadDataPadding(
+        source_path, dataset_len=dataset_len, is_validation_set=is_validation_set)
+
+    statistics = plotHistogramOfLengths([num_context_words, num_query_words, context_chars_lens, query_chars_lens],
+                                        ['num_context_words', 'num_query_words', 'context_chars_lens',
+                                         'query_chars_lens'], is_validation_set)
+
+    # pad all to create tensors FIXME
+    max_words_context = int((statistics['num_context_words']['max'] + statistics['num_context_words']['mean']) / 2)
+    max_chars_context = int((statistics['context_chars_lens']['max'] + statistics['context_chars_lens']['mean']) / 2)
+    print('max_words_context: ', max_words_context)
+    print('max_chars_context: ', max_chars_context)
+
+    # check if answer idx is > than max_words
+    idx_to_remove = [idx for idx, el in enumerate(answers_idx) if
+                     el[0] > max_words_context or el[1] > max_words_context]
+    # print('{} elements removed'.format(len(idx_to_remove)))
+    for i in idx_to_remove:
+        del context_words[i]
+        del context_chars[i]
+        del query_words[i]
+        del query_chars[i]
+        del answers_idx[i]
+
+    context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
+                                                                  maxlen=max_words_context)
+    print('context_words shape:', context_words.shape)
+    # context_chars = tf.ragged.constant(context_chars, dtype='float32').to_tensor()
+    context_chars = pad3dSequence(context_chars, max_words=max_words_context, chars_maxlen=max_chars_context)
+    print('context_chars shape:', context_chars.shape)
+    # context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
+    query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
+    # query_chars = tf.ragged.constant(query_chars, dtype='float32').to_tensor()
+    query_chars = pad3dSequence(query_chars)
+
+    print('conversion to tensors done, len context_words: {}, numbers words in each context: {}'.format(
+        len(context_words), max_words_context))
+
+    # save preprocessed data
+    if verbose: print('Saving data...')
+    # TODO adjust len(...)
+    filename = './save/training_set/{}'.format(
+        len(context_words)) if not is_validation_set else './save/validation_set/{}'.format(len(context_words))
+    if not os.path.exists(filename):
+        os.makedirs(filename)
+    savePickle(os.path.join(filename, 'context_words'), context_words)
+    savePickle(os.path.join(filename, 'context_chars'), context_chars)
+    savePickle(os.path.join(filename, 'query_words'), query_words)
+    savePickle(os.path.join(filename, 'query_chars'), query_chars)
+    savePickle(os.path.join(filename, 'answer_start_end_idx'), answers_idx)
+
+    return context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count
+
+
+def readSquadDataPadding(source_path, dataset_len, is_validation_set=False):
     # if verbose: print("Preprocessing squad data...")
     dataset = json.load(open(source_path, 'r'))
     glove_matrix = create_glove_matrix('glove.6B.100d.txt')
+    # f = open("dataset/dataset-qa", "a")  # file with info of qa
+    dataset_info_list = []
 
-    examples = []
+    # examples = []
     context_words = []
     context_chars = []
     query_words = []
@@ -289,8 +350,11 @@ def readSquadDataPadding(source_path):
                 question_tokens = get_words_tokens(question)
                 question_word_vec = [word2vec(word, glove_matrix) for word in question_tokens]
                 question_char_vec = char2vec(question_tokens, chars_dict)
-                # if max_emb > max_vocab_size: max_vocab_size = max_emb
-                # print('question_word_vec: ', len(question_word_vec), len(question_word_vec[0]))
+
+                # update file dataset-qa
+                # TODO create dictionary and write to file, needed when print attention matrix to get words
+                if is_validation_set:
+                    dataset_info_list.append({'c': context_tokens, 'q': question_tokens})
 
                 ans_id = 0
                 answer = qas[qid]['answers'][ans_id]['text']
@@ -312,7 +376,7 @@ def readSquadDataPadding(source_path):
                     continue
                 # a_end_idx = int(answer_map[answer_end - last_word_answer][1])
 
-                if question_char_vec.shape[-1] < 5:   # if word
+                if question_char_vec.shape[-1] < 5:  # if word
                     continue
                 answer_start_end_idx.append([a_start_idx, a_end_idx])
 
@@ -323,50 +387,91 @@ def readSquadDataPadding(source_path):
                 context_words.append(context_word_vec)
                 context_chars.append(context_char_vec)
 
-                examples.append(([context_word_vec, context_char_vec, question_word_vec, question_char_vec],
-                                 [answer_start, answer_end]))
-
                 # lengths statistics
                 num_context_words.append(len(context_word_vec))
                 num_query_words.append(len(question_word_vec))
                 context_chars_lens = context_chars_lens + [len(q[0]) for q in context_chars]
                 query_chars_lens = query_chars_lens + [len(q[0]) for q in query_chars]
 
-                if len(answer_start_end_idx) == 30:
-                    print(" ")
-        if articles_id == 3:
-            break
-
-                # # FIXME remove
-                # if len(answer_start_end_idx) == 50:
-                #     print("num context words: {}, mean: {}".format(num_context_words, np.mean(num_context_words)))
-                #     print("num query words: {}, mean: {}".format(num_query_words, np.mean(num_query_words)))
-                #
-                #     # pad all to create tensors
-                #     # FIXME
-                #     context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32")
-                #     a = tf.ragged.constant(context_chars, dtype="float32")
-                #     tf.keras.preprocessing.sequence.pad_sequences(a)
-                #     context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
-                #     query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
-                #     query_chars = tf.keras.preprocessing.sequence.pad_sequences(query_chars, dtype="float32")
-                #     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
+                if len(answer_start_end_idx) >= dataset_len:
+                    return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(
+                        chars_dict), skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens
+        # if len(answer_start_end_idx) > 500:
+        #     break
+    # f.close()
 
     print("skipped elements:", skipped_count)
+    return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(
+        chars_dict), skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens
 
-    plotHistogramOfLengths([num_context_words, num_query_words, context_chars_lens, query_chars_lens], ['num_context_words', 'num_query_words', 'context_chars_lens', 'query_chars_lens'])
+    # write validation elements to file
+    # if is_validation_set:
+    #     with open('data.txt', 'w') as outfile:
+    #         json.dump(dataset_info_list, outfile)
 
-    # pad all to create tensors FIXME
-    context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32")
-    context_chars = tf.ragged.constant(context_chars, dtype='float32').to_tensor()
-    # context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
-    query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
-    query_chars = tf.ragged.constant(query_chars, dtype='float32').to_tensor()
+    # statistics = plotHistogramOfLengths([num_context_words, num_query_words, context_chars_lens, query_chars_lens],
+    #                                     ['num_context_words', 'num_query_words', 'context_chars_lens',
+    #                                      'query_chars_lens'], is_validation_set)
+    #
+    # # pad all to create tensors FIXME
+    # max_words_context = int((statistics['num_context_words']['max'] + statistics['num_context_words']['mean']) / 2)
+    # max_chars_context = int((statistics['context_chars_lens']['max'] + statistics['context_chars_lens']['mean']) / 2)
+    # print('max_words_context: ', max_words_context)
+    # print('max_chars_context: ', max_chars_context)
+    #
+    # # check if answer idx is > than max_words
+    # idx_to_remove = [idx for idx, el in enumerate(answer_start_end_idx) if
+    #                  el[0] > max_words_context or el[1] > max_words_context]
+    # for i in idx_to_remove:
+    #     del context_words[i]
+    #     del context_chars[i]
+    #     del query_words[i]
+    #     del query_chars[i]
+    #     del answer_start_end_idx[i]
+    #
+    # context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
+    #                                                               maxlen=max_words_context)
+    # print('context_words shape:', context_words.shape)
+    # # context_chars = tf.ragged.constant(context_chars, dtype='float32').to_tensor()
+    # context_chars = pad3dSequence(context_chars, max_words=max_words_context, chars_maxlen=max_chars_context)
+    # print('context_chars shape:', context_chars.shape)
+    # # context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
+    # query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
+    # # query_chars = tf.ragged.constant(query_chars, dtype='float32').to_tensor()
+    # query_chars = pad3dSequence(query_chars)
 
-    print('conversion to tensors done')
+    # print('conversion to tensors done, len context_words: {}, numbers words in each context: {}'.format(
+    #     len(context_words), max_words_context))
+    #
+    # # save preprocessed data
+    # if verbose: print('Saving data')
+    # # TODO adjust len(...)
+    # filename = './save/{}/training_set'.format(len(context_words)) if not is_validation_set else './save/{}/validation_set'.format(len(context_words))
+    # if not os.path.exists(filename):
+    #     os.makedirs(filename)
+    # savePickle(os.path.join(filename, 'context_words'), context_words)
+    # savePickle(os.path.join(filename, 'context_chars'), context_chars)
+    # savePickle(os.path.join(filename, 'query_words'), query_words)
+    # savePickle(os.path.join(filename, 'query_chars'), query_chars)
+    # savePickle(os.path.join(filename, 'answer_start_end_idx'), answer_start_end_idx)
+    #
+    #
+    # return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
 
-    return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
-# ------------------------------------------------------------------------------------------ ##
+
+# ------------------------------------------------------------------------------------------ ##article_paragraphs
+
+def savePickle(filename, obj):
+    outfile = open(filename, 'wb')
+    pickle.dump(obj, outfile)
+    outfile.close()
+
+
+def loadPickle(filename):
+    infile = open(filename, 'rb')
+    obj = pickle.load(infile)
+    infile.close()
+    return obj
 
 
 def list_topics(data):
@@ -461,7 +566,6 @@ def get_char_word_loc_mapping(context, context_tokens):
 
 def write_to_file(out_file, line):
     out_file.write(line.encode('utf8') + '\n')
-
 
 # def read_write_dataset(dataset, tier, prefix):
 #     """Reads the dataset, extracts context, question, answer,
