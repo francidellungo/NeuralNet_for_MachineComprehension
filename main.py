@@ -16,7 +16,7 @@ def main(epochs, batch_size, dataset_dim, training_set_dim, validation_set_dim, 
     # gpu settings
     gpus = tf.config.experimental.list_physical_devices('GPU')
     tf.config.experimental.set_memory_growth(gpus[0], True)
-    # print("q2c_attention: {},  use char emb: {}".format(q2c_attention, use_char_emb))
+    print("q2c_attention: {},  use char emb: {},  use word emb: {}".format(q2c_attention, use_char_emb, use_word_emb))
 
     # reproducibility
     np.random.seed(0)
@@ -30,7 +30,7 @@ def main(epochs, batch_size, dataset_dim, training_set_dim, validation_set_dim, 
 
     # get squad dataset
     """ training set """
-    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = preprocessingSquad(train_source_path, dataset_len=training_set_dim)
+    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = preprocessingSquad(train_source_path, dataset_len=training_set_dim, pre_batch_size=10)
 
     # get a portion of dataset
     if dataset_dim != 0:
@@ -39,7 +39,7 @@ def main(epochs, batch_size, dataset_dim, training_set_dim, validation_set_dim, 
     cw_train, cc_train, qw_train, qc_train, y_train = c_words, c_chars, q_words, q_chars, answer_start_end_idx
 
     """ validation set """
-    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = preprocessingSquad(dev_source_path, dataset_len=validation_set_dim, is_validation_set=True)
+    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = preprocessingSquad(dev_source_path, dataset_len=validation_set_dim, is_validation_set=True, pre_batch_size=10)
     cw_val, cc_val, qw_val, qc_val, y_val = c_words, c_chars, q_words, q_chars, answer_start_end_idx
 
     X_train, y_train = (cw_train, cc_train, qw_train, qc_train), y_train
@@ -94,7 +94,8 @@ if __name__ == '__main__':
     parser.add_argument("-v", "--verbose", help="add comments", default=True, type=bool)
 
     # Ablations
-    parser.add_argument("-cemb", "--use_char_emb", help="use char embedding?", default=True, type=bool)
+    # TODO adjust cmd line arguments True/ False
+    parser.add_argument("-cemb", "--use_char_emb", help="use char embedding?", default=True, type=bool, choices=[False, True])
     parser.add_argument("-wemb", "--use_word_emb", help="use word embedding?", default=True, type=bool)
     parser.add_argument("-q2c_att", "--q2c-attention", help="use question-to-context attention?", default=True, type=bool)
     parser.add_argument("-c2q_att", "--c2q-attention", help="use context-to-question attention?", default=True, type=bool)

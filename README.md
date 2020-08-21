@@ -15,11 +15,11 @@ with: `wget https://nlp.cs.washington.edu/triviaqa/data/triviaqa-rc.tar.gz`
 and extract with: `tar -xf triviaqa-rc.tar.gz -C dataset`
 
 
-### SQuAD dataset
+### SQuAD dataset (1.1 version)
  create new dir : `mkdir dataset/squad`\
- download the data with:  `wget https://www.wolframcloud.com/objects/6b06e230-f56a-4244-8f23-382e74440a15`
- 
- train `wget https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json -O dataset/squad/train-v1.1.json`
+ download the data with:  `wget https://www.wolframcloud.com/objects/6b06e230-f56a-4244-8f23-382e74440a15` \
+ oppure (meglio, ma riguarda path dataset nel codice): \
+ train `wget https://rajpurkar.github.io/SQuAD-explorer/dataset/train-v1.1.json -O dataset/squad/train-v1.1.json` \
  dev `wget https://rajpurkar.github.io/SQuAD-explorer/dataset/dev-v1.1.json -O dataset/squad/dev-v1.1.json`
  
  

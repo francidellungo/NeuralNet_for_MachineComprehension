@@ -6,7 +6,7 @@ import numpy as np
 from tqdm import tqdm
 import datetime
 # from sklearn.utils import shuffle
-from utils import em_metric, f1_metric, computeLoss, get_answer, computeLossTensors, plotAttentionMatrix, shuffleDataset
+from utils import em_metric, f1_metric, computeLoss, get_answer, computeLossTensors, plotAttentionMatrix, shuffle
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 
@@ -87,12 +87,11 @@ class BiDafModel(tf.keras.Model):
             """ shuffle data """
             # shuffle training data
             assert (len(cw_train) == len(cc_train) == len(qw_train) == len(qc_train) == len(y_train))
-            cw_train, cc_train, qw_train, qc_train, y_train = shuffleDataset(
-                [cw_train, cc_train, qw_train, qc_train, y_train])
+            cw_train, cc_train, qw_train, qc_train, y_train = shuffle(cw_train, cc_train, qw_train, qc_train, y_train)
 
             # shuffle validation data
             assert (len(cw_val) == len(cc_val) == len(qw_val) == len(qc_val) == len(y_val))
-            cw_val, cc_val, qw_val, qc_val, y_val = shuffleDataset([cw_val, cc_val, qw_val, qc_val, y_val])
+            cw_val, cc_val, qw_val, qc_val, y_val = shuffle(cw_val, cc_val, qw_val, qc_val, y_val)
 
             # learning rate scheduler
             self.lr_scheduler(epoch)
@@ -128,11 +127,11 @@ class BiDafModel(tf.keras.Model):
                 y_true = y_val[start_idx:end_idx]
                 if verbose: print("batch dimension: ", len(y_true))
                 val_batch_loss, y_pred = self.validation_step(cw_val[start_idx:end_idx],
-                                                     cc_val[start_idx:end_idx],
-                                                     qw_val[start_idx:end_idx],
-                                                     qc_val[start_idx:end_idx], y_true, use_char_emb,
-                                                     use_word_emb, q2c_attention, c2q_attention,
-                                                     verbose)  # , batch, end_idx - start_idx)
+                                                              cc_val[start_idx:end_idx],
+                                                              qw_val[start_idx:end_idx],
+                                                              qc_val[start_idx:end_idx], y_true, use_char_emb,
+                                                              use_word_emb, q2c_attention, c2q_attention,
+                                                              verbose)  # , batch, end_idx - start_idx)
 
                 epoch_loss_v.append(val_batch_loss)
                 epoch_em_score_v.append(em_metric(y_true, y_pred))
@@ -194,21 +193,6 @@ class BiDafModel(tf.keras.Model):
                 "epoch:{epoch_num}, train_loss: {train_loss}, EM score: {em_score}, F1 score: {f1_score}"
                     .format(epoch_num=epoch, train_loss=epoch_loss, em_score=epoch_em_score, f1_score=epoch_f1_score))
 
-    # ---------------------------------------- #
-    # self.train_step(X[:10], y[:10])
-
-    # num_batches = int(np.ceil(X.shape[0] / batch_size))
-    # num_batches = ...
-    # for epoch in range(epochs):
-    # shuffle X, y
-    # for batch in range(num_batches)
-    # train_step
-
-    #     loss, y_pred = self.train_step(X, y)
-    #     tqdm.write("epoch: {}/{}, loss: {:.4f}, accuracy: {:.4f}".format(epoch, epochs, loss,
-    #                                                                      float(ChebNet.accuracy_mask(y, y_pred))))
-
-    # @tf.function
     def train_step(self, c_words, c_chars, q_words, q_chars, y, use_char_emb, use_word_emb, q2c_attention,
                    c2q_attention, training, verbose, batch_idx, batch_dim):
         if verbose: print("train step")
@@ -377,7 +361,7 @@ class BiDafModel(tf.keras.Model):
         #             np.save(outfile , similarity_matrix[i])
         #         outfile.close()
 
-                # plotAttentionMatrix(tf.transpose(similarity_matrix), i + batch_idx*batch_dim, )
+        # plotAttentionMatrix(tf.transpose(similarity_matrix), i + batch_idx*batch_dim, )
 
         # if verbose: print("{}: modeling layer".format(i))
         M = self.modeling_layer2(self.modeling_layer1(G, training=training), training=training)

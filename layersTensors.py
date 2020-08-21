@@ -92,8 +92,6 @@ class AttentionLayer(tf.keras.layers.Layer):
         # print(" ---------> H shape: ", H.shape, "; U shape: ", U.shape, "; W shape: ", self.Ws.shape)
         duplicateH = tf.keras.backend.repeat_elements(H, rep=U.shape[-2], axis=1)  # repeats each rows J times
         # print("new H dim: ", duplicateH.shape)
-        #TODO problems here
-        print('U.shape: ', U.shape, ' , finale duplicateU shape: [{}, {}]'.format(U.shape[0], U.shape[1]*H.shape[-2], U.shape[2]))
         duplicateU = tf.tile(U, [1, H.shape[-2], 1])  # repeats matrix U T times
         # print(" new U dim: ", duplicateU.shape)
         C = tf.concat([duplicateH, duplicateU, tf.multiply(duplicateH, duplicateU)], axis=-1)

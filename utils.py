@@ -4,6 +4,7 @@ import tensorflow as tf
 import sys
 import os
 import numpy as np
+import sklearn
 
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 
@@ -201,14 +202,32 @@ def pad3dSequence(seq, max_words=None, chars_maxlen=None, padding='pre', trunc='
 #         return current_learning_rate
 #         # return min(current_learning_rate, 0.001)
 
+def shuffle(context_words, context_chars, query_words, query_chars, answer_start_end_idx):
+    # context_words, context_chars, query_words, query_chars, answer_start_end_idx =
+    # print('cw', type(context_words), ' cc', type(context_chars), 'qw', type(query_words), 'qc', type(query_chars),
+    # 'answ', type(answer_start_end_idx))
 
-def shuffleDataset(list_of_data):
-    x = list_of_data[0]  # get first element
-    indices = tf.range(start=0, limit=tf.shape(x)[0], dtype=tf.int32)
-    shuffled_indices = tf.random.shuffle(indices)  # define shuffled order
-    for el in range(len(list_of_data)):
-        list_of_data[el] = tf.gather(list_of_data[el], shuffled_indices)
-    return list_of_data
+    # TODO this is ok
+    # return sklearn.utils.shuffle(context_words, context_chars.numpy(), query_words, query_chars.numpy(), answer_start_end_idx, random_state=0)
+
+    # TODO here just to try
+    # print('query_chars', type(query_chars))
+    context_words = sklearn.utils.shuffle(context_words) if type(context_words) == np.ndarray else sklearn.utils.shuffle(context_words.numpy())
+    context_chars = sklearn.utils.shuffle(context_chars) if type(context_chars) == np.ndarray else sklearn.utils.shuffle(context_chars.numpy())
+    query_words = sklearn.utils.shuffle(query_words) if type(query_words) == np.ndarray else sklearn.utils.shuffle(query_words.numpy())
+    query_chars = sklearn.utils.shuffle(query_chars) if type(query_chars) == np.ndarray else sklearn.utils.shuffle(query_chars.numpy())
+    answer_start_end_idx = sklearn.utils.shuffle(answer_start_end_idx) if (type(answer_start_end_idx) == np.ndarray or type(answer_start_end_idx) == list)\
+        else sklearn.utils.shuffle(answer_start_end_idx.numpy())
+
+    return context_words, context_chars, query_words, query_chars, answer_start_end_idx
+
+# def shuffleDataset(list_of_data):
+#     x = list_of_data[0]  # get first element
+#     indices = tf.range(start=0, limit=tf.shape(x)[0], dtype=tf.int32)
+#     shuffled_indices = tf.random.shuffle(indices)  # define shuffled order
+#     for el in range(len(list_of_data)):
+#         list_of_data[el] = tf.gather(list_of_data[el], shuffled_indices)
+#     return list_of_data
 
 
 def plotHistogramOfLengths(data_sets, data_labels, is_validation_set):
@@ -227,7 +246,7 @@ def plotHistogramOfLengths(data_sets, data_labels, is_validation_set):
                                         'mean': np.mean(data_sets[idx])}
         plt.gca().set(title='Length Histogram', ylabel='Frequency', xlabel='Words length')
         plt.legend(loc='upper right')
-        plt.show()
+        # plt.show()
         if is_validation_set:
             path = './fig/val/'
         else:
@@ -272,16 +291,34 @@ def getMaxKValues(x, k):
 
 
 def savePickle(filename, obj):
-    outfile = open(filename, 'wb')
-    pickle.dump(obj, outfile)
-    outfile.close()
+    max_bytes = 2 ** 31  # 2.14 GiB
+    max_bytes = 10  # 2.14 GiB
+    bytes_out = pickle.dumps(obj)
+    with open(filename, 'wb') as f_out:
+        for idx in range(0, len(bytes_out), max_bytes):
+            f_out.write(bytes_out[idx:idx + max_bytes])
+    f_out.close()
+    # outfile = open(filename, 'wb')
+    # pickle.dump(obj, outfile)
+    # outfile.close()
 
 
 def loadPickle(filename):
-    infile = open(filename, 'rb')
-    obj = pickle.load(infile)
-    infile.close()
-    return obj
+    bytes_in = bytearray(0)
+    # max_bytes = 2**31  # 2.14 GiB
+    max_bytes = 10  # 2.14 GiB
+    input_size = os.path.getsize(filename)
+    with open(filename, 'rb') as f_in:
+        for _ in range(0, input_size, max_bytes):
+            bytes_in += f_in.read(max_bytes)
+    f_in.close()
+    return pickle.loads(bytes_in)
+
+    # infile = open(filename, 'rb')
+    # obj = pickle.load(infile)
+    # infile.close()
+    # return obj
+
 
 ##  ---------------------  ##
 

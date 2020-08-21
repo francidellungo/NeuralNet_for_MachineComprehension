@@ -1,5 +1,7 @@
 import os
 import json
+import sys
+
 import tensorflow as tf
 # import gensim
 import numpy as np
@@ -239,9 +241,11 @@ def read_squad_data(source_path):
     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1, skipped_count
 
 
-def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf'), is_validation_set=False):
+def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf'), pre_batch_size=200,
+                       is_validation_set=False):
     # TODO complete
     # check if dataset already preprocessed
+    print('dataset len: ', dataset_len)
     filename = os.path.join(save_path,
                             'training_set/{}'.format(dataset_len)) if not is_validation_set else os.path.join(save_path,
                                                                                                               'validation_set/{}'.format(
@@ -249,17 +253,47 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
 
     if os.path.exists(filename):
         print('Dataset already preprocessed')
-        context_words = loadPickle(os.path.join(filename, 'context_words'))
-        context_chars = loadPickle(os.path.join(filename, 'context_chars'))
-        query_words = loadPickle(os.path.join(filename, 'query_words'))
-        query_chars = loadPickle(os.path.join(filename, 'query_chars'))
-        answer_start_end_idx = loadPickle(os.path.join(filename, 'answer_start_end_idx'))
-        vocab_size = loadPickle(os.path.join(filename, 'vocab_size'))
-
+        # context_words = loadPickle(os.path.join(filename, 'context_words'))
+        # context_chars = loadPickle(os.path.join(filename, 'context_chars'))
+        # query_words = loadPickle(os.path.join(filename, 'query_words'))
+        # query_chars = loadPickle(os.path.join(filename, 'query_chars'))
+        # answer_start_end_idx = loadPickle(os.path.join(filename, 'answer_start_end_idx'))
+        # vocab_size = loadPickle(os.path.join(filename, 'vocab_size'))
+        #
+        # return context_words, context_chars, query_words, query_chars, answer_start_end_idx, vocab_size, None
+        context_words, context_chars, query_words, query_chars, answer_start_end_idx, vocab_size = getPreprocessedDataset(
+            dataset_len, training_set=(not is_validation_set))
         return context_words, context_chars, query_words, query_chars, answer_start_end_idx, vocab_size, None
 
-    context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens = readSquadDataPadding(
-        source_path, dataset_len=dataset_len, is_validation_set=is_validation_set)
+    dataset = json.load(open(source_path, 'r'))
+    glove_matrix = create_glove_matrix('glove.6B.100d.txt')
+
+    context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count, num_context_words, \
+    num_query_words, context_chars_lens, query_chars_lens = [], [], [], [], [], [], [], [], [], [], []
+
+    dataset_len = min(dataset_len, len(dataset['data']))
+    num_batches = int(np.ceil(dataset_len / pre_batch_size))
+
+    # FIXME check if it's ok
+    for batch in tqdm(range(num_batches)):
+        end_idx = ((batch + 1) * pre_batch_size if (batch + 1) * pre_batch_size < dataset_len else dataset_len)
+        cw, cc, qw, qc, ai, vs, skipc, ncw, nqw, ccl, qcl = readSquadDataPadding(
+            dataset, glove_matrix, is_validation_set=is_validation_set, article_start=batch * pre_batch_size,
+            article_end=end_idx)
+        context_words += cw
+        context_chars += cc
+        query_words += qw
+        query_chars += qc
+        answers_idx += ai
+        vocab_size += [vs]
+        skipped_count += [skipc]
+        num_context_words += ncw
+        num_query_words += nqw
+        context_chars_lens += ccl
+        query_chars_lens += qcl
+
+    vocab_size = max(vocab_size)
+    print('sys.getsizeof(context_words): ', sys.getsizeof(context_words))
 
     statistics = plotHistogramOfLengths([num_context_words, num_query_words, context_chars_lens, query_chars_lens],
                                         ['num_context_words', 'num_query_words', 'context_chars_lens',
@@ -303,20 +337,28 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
 
     if not os.path.exists(filename):
         os.makedirs(filename)
-    savePickle(os.path.join(filename, 'context_words'), context_words)
-    savePickle(os.path.join(filename, 'context_chars'), context_chars)
-    savePickle(os.path.join(filename, 'query_words'), query_words)
-    savePickle(os.path.join(filename, 'query_chars'), query_chars)
-    savePickle(os.path.join(filename, 'answer_start_end_idx'), answers_idx)
+
+    # divide pickles to be saved
+    step_save = 10000
+
+    for id, e in enumerate(range(0, len(context_words), step_save)):
+        start = e
+        end = min(e + step_save, len(context_words))
+
+        savePickle(os.path.join(filename, 'context_words' + '_' + str(id)), context_words[start:end])
+        savePickle(os.path.join(filename, 'context_chars' + '_' + str(id)), context_chars[start:end])
+        savePickle(os.path.join(filename, 'query_words' + '_' + str(id)), query_words[start:end])
+        savePickle(os.path.join(filename, 'query_chars' + '_' + str(id)), query_chars[start:end])
+        savePickle(os.path.join(filename, 'answer_start_end_idx' + '_' + str(id)), answers_idx[start:end])
+
     savePickle(os.path.join(filename, 'vocab_size'), vocab_size)
 
     return context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count
 
 
-def readSquadDataPadding(source_path, dataset_len, is_validation_set=False):
+def readSquadDataPadding(dataset, glove_matrix, article_start=0, article_end=None, is_validation_set=False):
     # if verbose: print("Preprocessing squad data...")
-    dataset = json.load(open(source_path, 'r'))
-    glove_matrix = create_glove_matrix('glove.6B.100d.txt')
+
     # f = open("dataset/dataset-qa", "a")  # file with info of qa
     dataset_info_list = []
 
@@ -335,10 +377,12 @@ def readSquadDataPadding(source_path, dataset_len, is_validation_set=False):
     query_chars_lens = []
 
     chars_dict = create_char_dict()
+    if article_end is None:
+        article_end = len(dataset['data']) - article_start
 
-    for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
+    print(article_start, ' ', article_end)
+    for articles_id in tqdm(range(article_start, article_end), desc='Preprocessing squad dataset'):
         article_paragraphs = dataset['data'][articles_id]['paragraphs']
-
         for par_id in range(len(article_paragraphs)):
             context = article_paragraphs[par_id]['context']
             # if articles_id == 105 and par_id == 24:
@@ -353,7 +397,7 @@ def readSquadDataPadding(source_path, dataset_len, is_validation_set=False):
             # context = context.lower()
             # print('context_tokens: ', len(context_tokens))
 
-            # print("parid: ", par_id)
+            # print("parid {} / {} ".format(par_id, len(article_paragraphs)))
             answer_map = get_char_word_loc_mapping(context, context_tokens)
             # if answer_map is not None:
             context_word_vec = [word2vec(word, glove_matrix) for word in context_tokens]
@@ -410,11 +454,12 @@ def readSquadDataPadding(source_path, dataset_len, is_validation_set=False):
                 context_chars_lens = context_chars_lens + [len(q[0]) for q in context_chars]
                 query_chars_lens = query_chars_lens + [len(q[0]) for q in query_chars]
 
-                if len(answer_start_end_idx) >= dataset_len:
-                    return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(
-                        chars_dict), skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens
+                # if len(answer_start_end_idx) >= dataset_len:
+                #     return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(
+                #         chars_dict), skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens
         # if len(answer_start_end_idx) > 500:
         #     break
+        # print('Article {}, dim: {}, time: {}'.format(articles_id, len(article_paragraphs), time.time() - t1))
     # f.close()
 
     print("skipped elements:", skipped_count)
@@ -474,6 +519,35 @@ def readSquadDataPadding(source_path, dataset_len, is_validation_set=False):
     #
     #
     # return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
+
+
+def getPreprocessedDataset(dim, training_set=True):
+    path = os.path.join('save', 'training_set' if training_set else 'validation_set', str(dim))
+    files = ['context_words', 'context_chars', 'query_words', 'query_chars', 'answer_start_end_idx']
+
+    different_files = len([name for name in os.listdir(path) if os.path.isfile(os.path.join(path, name))])
+    context_words, context_chars, query_words, query_chars, answer_start_end_idx = [], [], [], [], []
+    for i in range(int(different_files / len(files))):
+        context_words.append(loadPickle(os.path.join(path, 'context_words' + '_' + str(i))))
+        context_chars.append(loadPickle(os.path.join(path, 'context_chars' + '_' + str(i))))
+        query_words.append(loadPickle(os.path.join(path, 'query_words' + '_' + str(i))))
+        query_chars.append(loadPickle(os.path.join(path, 'query_chars' + '_' + str(i))))
+        answer_start_end_idx.append(loadPickle(os.path.join(path, 'answer_start_end_idx' + '_' + str(i))))
+
+    # context_words = np.concatenate(context_words)  # tf.concat(context_words, axis=0)
+    # context_chars = np.concatenate(context_chars)  # tf.concat(context_chars, axis=0)
+    # query_words = np.concatenate(query_words)  # tf.concat(query_words, axis=0)
+    # query_chars = np.concatenate(query_chars)  # tf.concat(query_chars, axis=0)
+    # answer_start_end_idx = np.concatenate(answer_start_end_idx)  # tf.concat(answer_start_end_idx, axis=0)
+    vocab_size = loadPickle(os.path.join(path, 'vocab_size'))
+
+    context_words = tf.concat(context_words, axis=0)  # np.concatenate(context_words)
+    context_chars = tf.concat(context_chars, axis=0)  # np.concatenate(context_chars)
+    query_words = tf.concat(query_words, axis=0)  # np.concatenate(query_words)  #
+    query_chars = tf.concat(query_chars, axis=0)  # np.concatenate(query_chars)  #
+    answer_start_end_idx = tf.concat(answer_start_end_idx, axis=0)  # np.concatenate(answer_start_end_idx)  #
+
+    return context_words, context_chars, query_words, query_chars, answer_start_end_idx, vocab_size
 
 
 # ------------------------------------------------------------------------------------------ ##article_paragraphs
