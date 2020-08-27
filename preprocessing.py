@@ -293,7 +293,7 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
         query_chars_lens += qcl
 
     vocab_size = max(vocab_size)
-    print('sys.getsizeof(context_words): ', sys.getsizeof(context_words))
+    # print('sys.getsizeof(context_words): ', sys.getsizeof(context_words))
 
     statistics = plotHistogramOfLengths([num_context_words, num_query_words, context_chars_lens, query_chars_lens],
                                         ['num_context_words', 'num_query_words', 'context_chars_lens',
@@ -301,24 +301,38 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
 
     # pad all to create tensors FIXME
     max_words_context = int((statistics['num_context_words']['max'] + statistics['num_context_words']['mean']) / 2)
+    # max_words_context = int(statistics['num_context_words']['mean'])
     max_chars_context = int((statistics['context_chars_lens']['max'] + statistics['context_chars_lens']['mean']) / 2)
+    # max_chars_context = int(statistics['context_chars_lens']['mean'])
+    max_words_context = 256
     print('max_words_context: ', max_words_context)
     print('max_chars_context: ', max_chars_context)
 
+    pad_context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
+                                                                  maxlen=max_words_context)
+
+    # adjust start end answer indexes
+    context_words_lens = np.array([len(c) for c in context_words])  # list of lengths
+    words_dist = pad_context_words.shape[-2] - context_words_lens
+    words_dist = tf.keras.backend.repeat_elements(tf.convert_to_tensor(words_dist), 2, 0)
+    words_dist = tf.reshape(words_dist, [-1, 2])
+    answers_idx = tf.constant(answers_idx, dtype='int64') + words_dist
+
     # check if answer idx is > than max_words
-    idx_to_remove = [idx for idx, el in enumerate(answers_idx) if
-                     el[0] > max_words_context or el[1] > max_words_context]
-    # print('{} elements removed'.format(len(idx_to_remove)))
+    idx_to_remove = [idx for idx, el in enumerate(answers_idx) if el[0] > max_words_context or el[1] > max_words_context or el[0] < 0 or el[1] < 0]
+    print('{} elements removed'.format(len(idx_to_remove)))
+    idx_to_remove.reverse()
+    pad_context_words = np.delete(pad_context_words, idx_to_remove, 0)
+    answers_idx = np.delete(answers_idx, idx_to_remove, 0)
     for i in idx_to_remove:
-        del context_words[i]
+        # pad_context_words = np.delete(pad_context_words, i, 0)
         del context_chars[i]
         del query_words[i]
         del query_chars[i]
-        del answers_idx[i]
 
-    context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
-                                                                  maxlen=max_words_context)
-    print('context_words shape:', context_words.shape)
+
+
+    print('context_words shape:', pad_context_words.shape)
     # context_chars = tf.ragged.constant(context_chars, dtype='float32').to_tensor()
     context_chars = pad3dSequence(context_chars, max_words=max_words_context, chars_maxlen=max_chars_context)
     print('context_chars shape:', context_chars.shape)
@@ -341,11 +355,11 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
     # divide pickles to be saved
     step_save = 10000
 
-    for id, e in enumerate(range(0, len(context_words), step_save)):
+    for id, e in enumerate(range(0, len(pad_context_words), step_save)):
         start = e
-        end = min(e + step_save, len(context_words))
+        end = min(e + step_save, len(pad_context_words))
 
-        savePickle(os.path.join(filename, 'context_words' + '_' + str(id)), context_words[start:end])
+        savePickle(os.path.join(filename, 'context_words' + '_' + str(id)), pad_context_words[start:end])
         savePickle(os.path.join(filename, 'context_chars' + '_' + str(id)), context_chars[start:end])
         savePickle(os.path.join(filename, 'query_words' + '_' + str(id)), query_words[start:end])
         savePickle(os.path.join(filename, 'query_chars' + '_' + str(id)), query_chars[start:end])
@@ -353,7 +367,7 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
 
     savePickle(os.path.join(filename, 'vocab_size'), vocab_size)
 
-    return context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count
+    return pad_context_words, context_chars, query_words, query_chars, answers_idx, vocab_size, skipped_count
 
 
 def readSquadDataPadding(dataset, glove_matrix, article_start=0, article_end=None, is_validation_set=False):

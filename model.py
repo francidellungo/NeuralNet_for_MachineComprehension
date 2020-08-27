@@ -25,7 +25,9 @@ class BiDafModel(tf.keras.Model):
         # set optimizer
         # self.lr = tf.keras.callbacks.LearningRateScheduler(scheduler)
         # tf.keras.callbacks.
-        self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=0.5, decay=0.999)
+
+        self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=0.5)
+        # self.optimizer = tf.keras.optimizers.Adadelta(learning_rate=0.5, decay=0.999)
         # self.ema = tf.train.ExponentialMovingAverage(decay=0.999)
 
         self.char_emb = CharacterEmbedding(self.emb_dim, self.conv_filters, filter_width=conv_filter_width,
@@ -94,7 +96,8 @@ class BiDafModel(tf.keras.Model):
             cw_val, cc_val, qw_val, qc_val, y_val = shuffle(cw_val, cc_val, qw_val, qc_val, y_val)
 
             # learning rate scheduler
-            self.lr_scheduler(epoch)
+            # self.lr_scheduler(epoch)
+            print("lr: ")
 
             """ Training """
             # training loop
@@ -114,6 +117,7 @@ class BiDafModel(tf.keras.Model):
 
                 epoch_loss.append(batch_loss)
                 epoch_em_score.append(em_metric(y_true, y_pred))
+                # epoch_f1_score.append(accuracy(y_true, y_pred))
                 epoch_f1_score.append(f1_metric(y_true, y_pred))
 
             # Validation
@@ -202,6 +206,7 @@ class BiDafModel(tf.keras.Model):
                                  c2q_attention, training, verbose, batch_idx, batch_dim)  # forward pass
             if verbose: print("compute loss")
             loss = computeLossTensors(y, y_pred)  # calculate loss
+            # loss = negative_avg_log_error(y, y_pred)  # calculate loss
 
         if verbose: print("backward pass; number of trainable weights: ", len(self.trainable_weights))
         grads = tape.gradient(loss, self.trainable_weights)  # backpropagation
@@ -271,8 +276,8 @@ class BiDafModel(tf.keras.Model):
 
             # if verbose: print("{}: highway".format(i))
             # highway layers
-            context = self.highway2(self.highway1(context))
-            query = self.highway2(self.highway1(query))
+            context = self.highway2(self.highway1(context, training=training))
+            query = self.highway2(self.highway1(query, training=training))
 
             # if verbose: print("{}: biLSTM".format(i))
             # Contextual Embedding Layer (bidirectional LSTM)
@@ -311,10 +316,10 @@ class BiDafModel(tf.keras.Model):
     def call_t(self, c_word_input, c_char_input, q_word_input, q_char_input, use_char_emb, use_word_emb,
                q2c_attention, c2q_attention, training=False, verbose=False, batch_idx=0, batch_dim=0):
         # first c stands for context second for char, q stands for query
-        # TODO use tf.split()
         y_pred = []
         assert use_char_emb or use_word_emb, "at least one of the two embedding must be used"
-
+        c_word_input = tf.keras.layers.Masking(mask_value=0)(c_word_input)
+        q_word_input = tf.keras.layers.Masking(mask_value=0)(q_word_input)
         # for i in range(len(c_word_input)):
         if use_char_emb:
             # get character level representation of each word
@@ -335,14 +340,13 @@ class BiDafModel(tf.keras.Model):
             query = qc
 
         # highway layers
-        # TODO control if it's ok to use different highway layers for context and query
         context = self.highway2(self.highway1(context))
         query = self.highway2(self.highway1(query))
 
         # if verbose: print("{}: biLSTM".format(i))
         # Contextual Embedding Layer (bidirectional LSTM)
-        H = self.bi_lstm(context, training=training)
-        U = self.bi_lstm(query, training=training)
+        H = self.bi_lstm(context, training=training, mask=c_word_input._keras_mask)  # use mask here
+        U = self.bi_lstm(query, training=training, mask=q_word_input._keras_mask)
         # context matrix (H) dimension: 2d x T, query matrix (U) dimension: 2d x J
 
         # H = tf.squeeze(H, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
@@ -350,6 +354,7 @@ class BiDafModel(tf.keras.Model):
 
         # if verbose: print("{}: attention".format(i))
         # Attention Layer -> G matrix (T x 8d)
+        # TODO use mask here maybe
         G, similarity_matrix = self.attention(H, U, q2c_attention, c2q_attention)
 
         # TODO fixme
@@ -364,7 +369,8 @@ class BiDafModel(tf.keras.Model):
         # plotAttentionMatrix(tf.transpose(similarity_matrix), i + batch_idx*batch_dim, )
 
         # if verbose: print("{}: modeling layer".format(i))
-        M = self.modeling_layer2(self.modeling_layer1(G, training=training), training=training)
+        # TODO use mask here
+        M = self.modeling_layer2(self.modeling_layer1(G, training=training, mask=c_word_input._keras_mask), training=training, mask=c_word_input._keras_mask)
 
         # print("M shape (T x 2d): ", M.shape)
         # M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
