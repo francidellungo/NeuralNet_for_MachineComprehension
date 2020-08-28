@@ -60,13 +60,14 @@ class HighwayLayer(tf.keras.layers.Layer):
         n, m = x.shape[-2], x.shape[-1]
 
         x = tf.reshape(x, [-1, m])  # x.shape [b, n, m] --> [b*n, m]
-        H = tf.nn.relu(tf.matmul(x, self.Wh) + self.bh, name='activation')  # x.shape [b*n, m] , Wh.shape [m, m] --> matmul: [b*n , m]
+        H = tf.nn.relu(tf.matmul(x, self.Wh) + self.bh,
+                       name='activation')  # x.shape [b*n, m] , Wh.shape [m, m] --> matmul: [b*n , m]
         T = tf.sigmoid(tf.matmul(x, self.Wt) + self.bt, name='transform_gate')
         # C = tf.sub(1.0, T, name="carry_gate")
         H = tf.reshape(H, [-1, n, m])  # [b*n, m] --> [b, n, m]
         T = tf.reshape(T, [-1, n, m])
         x = tf.reshape(x, [-1, n, m])
-        y = tf.add(tf.multiply(H, T), tf.multiply(x, 1-T), name='y')  # y = (H * T) + (x * C)
+        y = tf.add(tf.multiply(H, T), tf.multiply(x, 1 - T), name='y')  # y = (H * T) + (x * C)
         return y
 
 
@@ -78,7 +79,7 @@ class AttentionLayer(tf.keras.layers.Layer):
     def build(self, input_shape):
         #  dim W = (T * J, 3*dim)
         # print("input_shape (Attention Layer): ", input_shape)
-        self.Ws = self.add_weight(shape=(input_shape[-1]*3, 1), trainable=True)
+        self.Ws = self.add_weight(shape=(input_shape[-1] * 3, 1), trainable=True)
         # self.Ws = self.add_weight(shape=(H.shape[0] * U.shape[0], input_shape[1]*3))  # opzione2 TODO: U.shape, T.shape -> input_shape
         super(AttentionLayer, self).build(input_shape)
 
@@ -144,7 +145,8 @@ class AttentionLayer(tf.keras.layers.Layer):
         :return: G: matrix (T x 8d)
         """
         if attended_context is not None:
-            G = tf.concat([H, attended_query, tf.multiply(H, attended_query), tf.multiply(H, attended_context)], axis=-1)
+            G = tf.concat([H, attended_query, tf.multiply(H, attended_query), tf.multiply(H, attended_context)],
+                          axis=-1)
         else:
             G = tf.concat([H, attended_query, tf.multiply(H, attended_query)], axis=-1)  # q2c ablation
             # to be fixed FIXME
@@ -174,33 +176,42 @@ class AttentionLayer(tf.keras.layers.Layer):
 class OutputLayer(tf.keras.layers.Layer):
     def __init__(self, lstm_units, dropout):
         super(OutputLayer, self).__init__()
-        self.bi_lstm = tf.keras.layers.Bidirectional(tf.keras.layers.LSTM(lstm_units, return_sequences=True, dropout=dropout), merge_mode='concat')
+        self.bi_lstm = tf.keras.layers.Bidirectional(
+            tf.keras.layers.LSTM(lstm_units, return_sequences=True, dropout=dropout), merge_mode='concat')
 
         self.dropout_out1 = tf.keras.layers.Dropout(.2)
         self.dropout_out2 = tf.keras.layers.Dropout(.2)
 
     def build(self, input_shape):
         # M input_shape = (T X 2d) -> W dim: (10d, 1)
-        self.W_start = self.add_weight(shape=(input_shape[-1]*5, 1), trainable=True)
-        self.W_end = self.add_weight(shape=(input_shape[-1]*5, 1), trainable=True)
+        self.W_start = self.add_weight(shape=(input_shape[-1] * 5, 1), trainable=True)
+        self.W_end = self.add_weight(shape=(input_shape[-1] * 5, 1), trainable=True)
         super(OutputLayer, self).build(input_shape)
 
-    def call(self, M, G, training=False):
+    def call(self, M, G, mask, training=False):
         # qui dropout
         G = self.dropout_out1(G, training=training)
         M = self.dropout_out2(M, training=training)
 
         p_start = tf.matmul(tf.concat([G, M], axis=-1), self.W_start)
-        p_start = tf.squeeze(tf.nn.softmax(p_start, axis=-2))
+        p_start = addMask(tf.squeeze(p_start,  axis=-1), mask)
+        # subtract by a very big number each element of the mask before apply softmax -> masked (padded) elements will be close to zero (zero prob)
+        p_start = tf.nn.softmax(p_start, axis=-1)
 
-        M = self.bi_lstm(M, training=training)
+        M = self.bi_lstm(M, mask=mask, training=training)
         # M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
         # print(" new M shape ( Tx 2d): ", M.shape)
 
         # qui dropout
         p_end = tf.matmul(tf.concat([G, M], axis=-1), self.W_end)
-
-        p_end = tf.squeeze(tf.nn.softmax(p_end, axis=-2))
+        p_end = addMask(tf.squeeze(p_end,  axis=-1), mask)
+        p_end = tf.nn.softmax(p_end, axis=-1)
 
         return p_start, p_end
 
+
+def addMask(tensor, mask):
+    mask = (tf.cast(mask, 'float32') + 1) % 2
+    mask *= -1000
+    tensor += mask
+    return tensor

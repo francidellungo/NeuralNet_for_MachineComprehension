@@ -78,13 +78,9 @@ class BiDafModel(tf.keras.Model):
         for epoch in tqdm(range(epochs), desc='Train epochs'):
             ''' init metrics (loss, EM score, F1 score) '''
             # training
-            epoch_loss = []
-            epoch_em_score = []
-            epoch_f1_score = []
+            epoch_loss, epoch_em_score, epoch_f1_score = [], [], []
             # validation
-            epoch_loss_v = []
-            epoch_em_score_v = []
-            epoch_f1_score_v = []
+            epoch_loss_v, epoch_em_score_v, epoch_f1_score_v = [], [], []
 
             """ shuffle data """
             # shuffle training data
@@ -376,7 +372,7 @@ class BiDafModel(tf.keras.Model):
         # M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
 
         # if verbose: print("{}: output layer".format(i))
-        p_start, p_end = self.output_layer_(M, G, training)
+        p_start, p_end = self.output_layer_(M, G, c_word_input._keras_mask, training)
         # print("output dims: (T, 1) :", p_start.shape, p_end.shape)
         # print("output layer: p start: {}, p end: {}".format(p_start, p_end))
         # y_pred.append()
