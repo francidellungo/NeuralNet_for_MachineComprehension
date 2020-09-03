@@ -165,35 +165,7 @@ def pad3dSequence(seq, max_words=None, chars_maxlen=None, padding='pre', trunc='
         t.append(context_i)
 
     return tf.convert_to_tensor(t)
-    # # truncating words and chars if necessary
-    # start_word = 0
-    #
-    #
-    #
-    #     # truncating word_i if necessary
-    #     elif len(context_i[0]) > chars_maxlen:
-    #         start = len(context_i[0]) - min(len(context_i[0]), chars_maxlen)
-    #         t.append(np.array(context_i[:, start:]))  # truncating pre
-    #
-    # # truncating 'pre' number of words
-    # #TODO pad with np
-    # start = len(t[0]) - min(len(t[0]), max_words)
-    # # end = min(len(t[0]), max_words)
-    # rt = tf.ragged.constant(t).to_tensor()[:, start:, :]
-    # return rt
 
-
-# a = [[[2, 3, 1, 1, 1, 10], [2, 2, 2, 2, 2, 2]], [[3, 3], [4, 4], [5, 5], [6, 6]],
-#      [[2, 1, 1, 1, 1, 1, 1, 1, 5, 6], [1, 1, 1, 1, 1, 1, 1, 1, 5, 6]],[[2, 3, 1, 1, 1, 10], [2, 2, 2, 2, 2, 2]], [[3, 3], [4, 4], [5, 5], [6, 6]],
-#      [[2, 1, 1, 1, 1, 1, 1, 1, 5, 6], [1, 1, 1, 1, 1, 1, 1, 1, 5, 6]], [[2, 3, 1, 1, 1, 10], [2, 2, 2, 2, 2, 2]], [[3, 3], [4, 4], [5, 5], [6, 6]],
-#      [[2, 1, 1, 1, 1, 1, 1, 1, 5, 6], [1, 1, 1, 1, 1, 1, 1, 1, 5, 6]], [[2, 3, 1, 1, 1, 10], [2, 2, 2, 2, 2, 2]], [[3, 3], [4, 4], [5, 5], [6, 6]],
-#      [[2, 1, 1, 1, 1, 1, 1, 1, 5, 6], [1, 1, 1, 1, 1, 1, 1, 1, 5, 6]]]
-# print(a)
-# print(pad3dSequence(a, max_words=3, chars_maxlen=5))
-# print(pad3dSequence(a).shape)
-#
-# print('--------------')
-# print(tf.ragged.constant(a).to_tensor())
 
 # def scheduler(epoch, current_learning_rate):
 #     if epoch > 2:
@@ -202,24 +174,17 @@ def pad3dSequence(seq, max_words=None, chars_maxlen=None, padding='pre', trunc='
 #         return current_learning_rate
 #         # return min(current_learning_rate, 0.001)
 
+
 def shuffle(context_words, context_chars, query_words, query_chars, answer_start_end_idx):
-    # context_words, context_chars, query_words, query_chars, answer_start_end_idx =
-    # print('cw', type(context_words), ' cc', type(context_chars), 'qw', type(query_words), 'qc', type(query_chars),
-    # 'answ', type(answer_start_end_idx))
+    context_words = context_words if type(context_words) == np.ndarray else context_words.numpy()
+    context_chars = context_chars if type(context_chars) == np.ndarray else context_chars.numpy()
+    query_words = query_words if type(query_words) == np.ndarray else query_words.numpy()
+    query_chars = query_chars if type(query_chars) == np.ndarray else query_chars.numpy()
+    answer_start_end_idx = answer_start_end_idx if type(
+        answer_start_end_idx) == np.ndarray else answer_start_end_idx.numpy()
 
-    # TODO this is ok
-    # return sklearn.utils.shuffle(context_words, context_chars.numpy(), query_words, query_chars.numpy(), answer_start_end_idx, random_state=0)
+    return sklearn.utils.shuffle(context_words, context_chars, query_words, query_chars, answer_start_end_idx)
 
-    # TODO here just to try
-    # print('query_chars', type(query_chars))
-    context_words = sklearn.utils.shuffle(context_words) if type(context_words) == np.ndarray else sklearn.utils.shuffle(context_words.numpy())
-    context_chars = sklearn.utils.shuffle(context_chars) if type(context_chars) == np.ndarray else sklearn.utils.shuffle(context_chars.numpy())
-    query_words = sklearn.utils.shuffle(query_words) if type(query_words) == np.ndarray else sklearn.utils.shuffle(query_words.numpy())
-    query_chars = sklearn.utils.shuffle(query_chars) if type(query_chars) == np.ndarray else sklearn.utils.shuffle(query_chars.numpy())
-    answer_start_end_idx = sklearn.utils.shuffle(answer_start_end_idx) if (type(answer_start_end_idx) == np.ndarray or type(answer_start_end_idx) == list)\
-        else sklearn.utils.shuffle(answer_start_end_idx.numpy())
-
-    return context_words, context_chars, query_words, query_chars, answer_start_end_idx
 
 # def shuffleDataset(list_of_data):
 #     x = list_of_data[0]  # get first element

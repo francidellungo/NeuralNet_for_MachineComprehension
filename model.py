@@ -93,7 +93,6 @@ class BiDafModel(tf.keras.Model):
 
             # learning rate scheduler
             # self.lr_scheduler(epoch)
-            print("lr: ")
 
             """ Training """
             # training loop
@@ -300,23 +299,16 @@ class BiDafModel(tf.keras.Model):
             # print("output layer: p start: {}, p end: {}".format(p_start, p_end))
             y_pred.append([p_start, p_end])
 
-            ## versione ragged tensor:
-            # y_predi = [p_start, p_end]
-            # if ragged is not None:
-            #     ragged = tf.concat([ragged, [[tf.squeeze(tf.transpose(p_start)), tf.squeeze(tf.transpose(p_end))]]], axis=2)
-            # else:
-            #     ragged = tf.RaggedTensor.from_tensor([[tf.squeeze(tf.transpose(p_start)), tf.squeeze(tf.transpose(p_end))]])
-
         return y_pred
 
     def call_t(self, c_word_input, c_char_input, q_word_input, q_char_input, use_char_emb, use_word_emb,
                q2c_attention, c2q_attention, training=False, verbose=False, batch_idx=0, batch_dim=0):
         # first c stands for context second for char, q stands for query
-        y_pred = []
+
         assert use_char_emb or use_word_emb, "at least one of the two embedding must be used"
         c_word_input = tf.keras.layers.Masking(mask_value=0)(c_word_input)
         q_word_input = tf.keras.layers.Masking(mask_value=0)(q_word_input)
-        # for i in range(len(c_word_input)):
+
         if use_char_emb:
             # get character level representation of each word
             cc = self.char_emb(c_char_input, training)
@@ -326,14 +318,16 @@ class BiDafModel(tf.keras.Model):
             # concatenate word representation vector given by chars and word representation vector by GloVe
             context = tf.concat([cc, c_word_input], axis=-1)  # final shape: [batch, num_words, 200]
             query = tf.concat([qc, q_word_input], axis=-1)
-        # elif not use_char_emb:
-        #     # ablation on char embedding
-        #     context = tf.convert_to_tensor(c_word_input[i])
-        #     query = tf.convert_to_tensor(q_word_input[i])
+
         elif not use_word_emb:
             # ablation on word embedding
             context = cc
             query = qc
+
+        elif not use_char_emb:
+            # no char embedding
+            context = c_word_input
+            query = q_word_input
 
         # highway layers
         context = self.highway2(self.highway1(context))
@@ -341,8 +335,8 @@ class BiDafModel(tf.keras.Model):
 
         # if verbose: print("{}: biLSTM".format(i))
         # Contextual Embedding Layer (bidirectional LSTM)
-        H = self.bi_lstm(context, training=training, mask=c_word_input._keras_mask)  # use mask here
-        U = self.bi_lstm(query, training=training, mask=q_word_input._keras_mask)
+        H = self.bi_lstm(context, training=training) #, mask=c_word_input._keras_mask)  # use mask here
+        U = self.bi_lstm(query, training=training) # , mask=q_word_input._keras_mask)
         # context matrix (H) dimension: 2d x T, query matrix (U) dimension: 2d x J
 
         # H = tf.squeeze(H, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
@@ -366,7 +360,7 @@ class BiDafModel(tf.keras.Model):
 
         # if verbose: print("{}: modeling layer".format(i))
         # TODO use mask here
-        M = self.modeling_layer2(self.modeling_layer1(G, training=training, mask=c_word_input._keras_mask), training=training, mask=c_word_input._keras_mask)
+        M = self.modeling_layer2(self.modeling_layer1(G, training=training), training=training) #, mask=c_word_input._keras_mask)
 
         # print("M shape (T x 2d): ", M.shape)
         # M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
@@ -394,73 +388,3 @@ class BiDafModel(tf.keras.Model):
             tf.keras.backend.set_value(self.optimizer.lr, scheduled_lr)
         # Set the value back to the optimizer before this epoch starts
         # print("\nEpoch %05d: Learning rate is %6.4f." % (epoch, scheduled_lr))
-
-# ----------------------------------------------------------------------------------------------------------------------
-
-# source_path = "./dataset/squad/downloads/rajpurkar_SQuAD-explorer_train-v1.1NSdmOYa4KVr09_zf8bof8_ctB9YaIPSHyyOKbvkv2VU.json"
-# # source_path = "./DATA/squad/train-v1.1.json"
-# # source_path = "./DATA/squad/dev-v1.1.json"
-#
-# _, c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_t, _ = read_squad_data_v2(source_path)
-#
-# c_words = tf.ragged.constant(c_words)
-# c_chars= tf.ragged.constant(c_chars)
-# q_words= tf.ragged.constant(q_words)
-# q_chars= tf.ragged.constant(q_chars)
-# answer_start_end_idx = tf.constant(answer_start_end_idx)
-#
-# model = BiDafModel(80)
-# model.call_ragged(c_words, c_chars, q_words, q_chars, True, True, True, True)
-
-
-# ----------------------------------------------------------------------------------------------------------------------
-
-# tf.keras.layers.Attention()
-
-# x = tf.ones((10, 10))
-# # print(x)
-# model = BiDafModel(100)
-
-# print(model.char_emb.trainable_weights)
-# model.build(x.shape)
-# y = model(x)
-# model.summary()
-
-
-# def build_model(conv_filters=100):
-#     model = keras.Sequential([
-#         # 1 Character Embedding Layer
-#         # tf.keras.layers.InputLayer([10]),
-#         CharacterEmbedding()
-#     ])
-#
-#     return model
-
-
-# n_words = 10
-# model = models.Sequential()
-# model.add(layers.Conv2D(100, (n_words, 1), activation='relu', input_shape=(32, 32, 3)))
-# model.add(layers.MaxPooling2D())
-# model.add(layers.Conv2D(64, (3, 3), activation='relu'))
-# model.add(layers.MaxPooling2D())
-# model.add(layers.Conv2D(64, (3, 3), activation='relu'))
-# model.add(layers.Flatten())
-# model.add(layers.Dense(64, activation='relu'))
-# model.add(layers.Dense(10, activation='softmax'))
-# model.summary()
-
-
-# model = build_model()
-# model.build()
-# model.summary()
-
-# source = "dataset/qa/web-example.json"
-# evidence = "dataset/evidence"
-# data = read_data(source, evidence)
-#
-# model = BiDafModel(70, 100, 50, 50)
-# model.compile(optimizer='Adam', loss=tf.keras.losses.BinaryCrossentropy(), metrics=['accuracy'])
-#
-# model.fit(data)
-# model.build(10)
-# model.summary()

@@ -241,6 +241,130 @@ def read_squad_data(source_path):
     return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1, skipped_count
 
 
+def read_squad_data_v2(source_path):
+    # if verbose: print("Preprocessing squad data...")
+    dataset = json.load(open(source_path, 'r'))
+    glove_matrix = create_glove_matrix('glove.6B.100d.txt')
+
+    # examples = []
+    context_words = []
+    context_chars = []
+    query_words = []
+    query_chars = []
+    answer_start_end_idx = []
+    skipped_count = 0
+
+    # max_vocab_size = 0
+    chars_dict = create_char_dict()
+    # error = False
+
+    for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
+    # for articles_id in tqdm(range(4), desc='Preprocessing squad dataset'):
+        article_paragraphs = dataset['data'][articles_id]['paragraphs']
+
+        for par_id in range(len(article_paragraphs)):
+            context = article_paragraphs[par_id]['context']
+            # context = context.replace("''", '" ')
+            # context = context.replace("``", '" ')
+            # context = context.replace("-", ' ')
+            context = normalize_text(context)
+            # context.replace("''", '" ').replace("``", '" ')
+            context_tokens = get_words_tokens(context)
+            # context_tokens = process_tokens(context_tokens)
+
+            answer_map = get_char_word_loc_mapping(context, context_tokens)
+            context_word_vec = [word2vec(word, glove_matrix) for word in context_tokens]
+            # context_char_vec = char2vec(context_tokens)
+            context_char_vec = char2vec(context_tokens, chars_dict)
+
+            qas = article_paragraphs[par_id]['qas']
+            for qid in range(len(qas)):
+                question = qas[qid]['question']
+                question_tokens = get_words_tokens(question)
+                question_word_vec = [word2vec(word, glove_matrix) for word in question_tokens]
+                question_char_vec = char2vec(question_tokens, chars_dict)
+
+                ans_id = 0
+                answer = qas[qid]['answers'][ans_id]['text']
+                answer_start = qas[qid]['answers'][ans_id]['answer_start']
+                answer_end = answer_start + len(answer)
+
+                # answer_tokens = get_words_tokens(answer)
+                # last_word_answer = len(answer_tokens[-1])
+                try:
+                    a_start_idx = int(answer_map[answer_start][1])
+                    a_end_idx = int(answer_map[answer_end - 1][1])
+                except KeyError:
+                    # print("answer problems: key not in dictionary")
+                    skipped_count += 1
+                    continue
+                except TypeError:
+                    skipped_count += 1
+                    continue
+                # a_end_idx = int(answer_map[answer_end - last_word_answer][1])
+
+                if question_char_vec.shape[-1] < 5:  # if word
+                    print('')
+                    continue
+                answer_start_end_idx.append([a_start_idx, a_end_idx])
+
+                query_words.append(question_word_vec)
+                query_chars.append(np.array(question_char_vec, dtype='float32'))
+
+                context_words.append(context_word_vec)
+                context_chars.append(np.array(context_char_vec, dtype='float32'))
+
+
+    print("skipped elements:", skipped_count)
+    max_words_context = 256
+    max_chars_context = 30
+
+    # adjust start end answer indexes
+    context_words_lens = np.array([len(c) for c in context_words])  # list of lengths
+    words_dist = max_words_context - context_words_lens
+    words_dist = tf.keras.backend.repeat_elements(tf.convert_to_tensor(words_dist), 2, 0)
+    words_dist = tf.reshape(words_dist, [-1, 2])
+    new_answer_start_end_idx = (tf.constant(answer_start_end_idx, dtype='int64') + words_dist).numpy()
+
+    # check if new answers indexes are less than zero
+    minor = tf.math.less(new_answer_start_end_idx[:, 0], 0)  # check if new answ indexes are less than zero
+    minor = tf.cast(minor, 'int32')
+    minor = tf.squeeze(tf.where(minor)).numpy()  # get indexes of elements less than the threshold
+    for idx in minor:
+        start = max(0, answer_start_end_idx[idx][0] - 20)
+        end = start + max_words_context
+        context_words[idx] = context_words[idx][start: end]
+        context_chars[idx] = context_chars[idx][start: end]
+        new_answer_start_end_idx[idx] = [answer_start_end_idx[idx][0] - start, answer_start_end_idx[idx][1] - start]
+
+    # do paddings and trunc
+    pad_context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
+                                                                      maxlen=max_words_context)
+
+    context_chars = pad3dSequence(context_chars, max_words=max_words_context, chars_maxlen=max_chars_context)
+    print('context_chars shape:', context_chars.shape)
+    # context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
+    query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
+    # query_chars = tf.ragged.constant(query_chars, dtype='float32').to_tensor()
+    query_chars = pad3dSequence(query_chars)
+
+    # # check if answer idx is > than max_words
+    # idx_to_remove = [idx for idx, el in enumerate(new_answer_start_end_idx) if
+    #                  el[0] > max_words_context or el[1] > max_words_context or el[0] < 0 or el[1] < 0]
+    # print('{} elements removed'.format(len(idx_to_remove)))
+    # assert idx_to_remove == []
+    # # idx_to_remove.reverse()
+    # #
+    # # pad_context_words = np.delete(pad_context_words, idx_to_remove, 0)
+    # # new_answer_start_end_idx = np.delete(new_answer_start_end_idx, idx_to_remove, 0)
+    # # context_chars = np.delete(context_chars, idx_to_remove, 0)
+    # # query_words = np.delete(query_words, idx_to_remove, 0)
+    # # query_chars = np.delete(query_chars, idx_to_remove, 0)
+
+    return pad_context_words, context_chars, query_words, query_chars, new_answer_start_end_idx, len(
+        chars_dict), skipped_count
+
+
 def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf'), pre_batch_size=200,
                        is_validation_set=False):
     # TODO complete
@@ -309,7 +433,7 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
     print('max_chars_context: ', max_chars_context)
 
     pad_context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
-                                                                  maxlen=max_words_context)
+                                                                      maxlen=max_words_context)
 
     # adjust start end answer indexes
     context_words_lens = np.array([len(c) for c in context_words])  # list of lengths
@@ -319,7 +443,8 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
     answers_idx = tf.constant(answers_idx, dtype='int64') + words_dist
 
     # check if answer idx is > than max_words
-    idx_to_remove = [idx for idx, el in enumerate(answers_idx) if el[0] > max_words_context or el[1] > max_words_context or el[0] < 0 or el[1] < 0]
+    idx_to_remove = [idx for idx, el in enumerate(answers_idx) if
+                     el[0] > max_words_context or el[1] > max_words_context or el[0] < 0 or el[1] < 0]
     print('{} elements removed'.format(len(idx_to_remove)))
     idx_to_remove.reverse()
     pad_context_words = np.delete(pad_context_words, idx_to_remove, 0)
@@ -329,8 +454,6 @@ def preprocessingSquad(source_path, save_path='./save', dataset_len=float('inf')
         del context_chars[i]
         del query_words[i]
         del query_chars[i]
-
-
 
     print('context_words shape:', pad_context_words.shape)
     # context_chars = tf.ragged.constant(context_chars, dtype='float32').to_tensor()

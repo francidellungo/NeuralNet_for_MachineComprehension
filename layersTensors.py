@@ -5,10 +5,6 @@ class MaxOverTimePoolLayer(tf.keras.layers.Layer):
     def __init__(self):
         super(MaxOverTimePoolLayer, self).__init__()
 
-    # def build(self):
-    # self.kernel = self.add_weight("kernel",
-    #                               shape=[int(input_shape[-1]),
-    #                                      self.num_outputs])
     def call(self, input_tensor):
         return tf.math.reduce_max(input_tensor, axis=2)
         # return tf.math.reduce_max(input_tensor, axis=0)
@@ -27,14 +23,14 @@ class CharacterEmbedding(tf.keras.layers.Layer):
 
         self.dropout_conv = tf.keras.layers.Dropout(.2)
 
-        # self.emb = tf.keras.layers.Embedding(self.vocab_size, self.out_emb_dim)
+        self.emb = tf.keras.layers.Embedding(self.vocab_size, self.out_emb_dim, trainable=False)
         self.conv = tf.keras.layers.Conv1D(self.conv_filters, self.filter_width, activation='relu',
                                            padding='valid')  # , input_shape=(None, char_emb_dim)),
         self.max_pool = MaxOverTimePoolLayer()
 
     def call(self, x, training=False):
         # x = tf.keras.layers.Flatten()(x)
-        x = tf.keras.layers.Embedding(self.vocab_size, self.out_emb_dim)(x)  # Embedding
+        x = self.emb(x) # Embedding
         x = self.dropout_conv(x, training=training)  # Dropout
         x = tf.stack([self.conv(xi) for xi in x])  # 1D convolutions
         x = self.max_pool(x)  # Max Pooling over time
@@ -194,24 +190,27 @@ class OutputLayer(tf.keras.layers.Layer):
         M = self.dropout_out2(M, training=training)
 
         p_start = tf.matmul(tf.concat([G, M], axis=-1), self.W_start)
-        p_start = addMask(tf.squeeze(p_start,  axis=-1), mask)
+        p_start = addMask(tf.squeeze(p_start,  axis=-1), None)
         # subtract by a very big number each element of the mask before apply softmax -> masked (padded) elements will be close to zero (zero prob)
         p_start = tf.nn.softmax(p_start, axis=-1)
 
-        M = self.bi_lstm(M, mask=mask, training=training)
+        M = self.bi_lstm(M, training=training)
         # M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
         # print(" new M shape ( Tx 2d): ", M.shape)
 
         # qui dropout
         p_end = tf.matmul(tf.concat([G, M], axis=-1), self.W_end)
-        p_end = addMask(tf.squeeze(p_end,  axis=-1), mask)
+        p_end = addMask(tf.squeeze(p_end,  axis=-1), None)
         p_end = tf.nn.softmax(p_end, axis=-1)
 
         return p_start, p_end
 
 
 def addMask(tensor, mask):
+    if mask is None:
+        return tensor
     mask = (tf.cast(mask, 'float32') + 1) % 2
     mask *= -1000
     tensor += mask
     return tensor
+
