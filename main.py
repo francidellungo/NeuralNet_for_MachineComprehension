@@ -5,7 +5,7 @@ import datetime
 import numpy as np
 import tensorflow as tf
 # import tensorflow_datasets as tfds
-from preprocessing import preprocessingSquad, read_squad_data_v2
+from preprocessing import preprocessingSquad, read_squad_data_v2, read_squad_dev
 from model import BiDafModel
 # from layers import *
 
@@ -41,7 +41,8 @@ def main(epochs, batch_size, dataset_dim, training_set_dim, validation_set_dim, 
 
     """ validation set """
     # c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = preprocessingSquad(dev_source_path, dataset_len=validation_set_dim, is_validation_set=True, pre_batch_size=10)
-    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = read_squad_data_v2(dev_source_path)
+    # c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = read_squad_data_v2(dev_source_path)
+    c_words, c_chars, q_words, q_chars, answer_start_end_idx, vocab_size_v, _ = read_squad_dev(dev_source_path)
     cw_val, cc_val, qw_val, qc_val, y_val = c_words, c_chars, q_words, q_chars, answer_start_end_idx
 
     X_train, y_train = (cw_train, cc_train, qw_train, qc_train), y_train

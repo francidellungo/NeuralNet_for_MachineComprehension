@@ -23,14 +23,14 @@ class CharacterEmbedding(tf.keras.layers.Layer):
 
         self.dropout_conv = tf.keras.layers.Dropout(.2)
 
-        self.emb = tf.keras.layers.Embedding(self.vocab_size, self.out_emb_dim, trainable=False)
+        self.emb = tf.keras.layers.Embedding(self.vocab_size, self.out_emb_dim)
         self.conv = tf.keras.layers.Conv1D(self.conv_filters, self.filter_width, activation='relu',
                                            padding='valid')  # , input_shape=(None, char_emb_dim)),
         self.max_pool = MaxOverTimePoolLayer()
 
     def call(self, x, training=False):
         # x = tf.keras.layers.Flatten()(x)
-        x = self.emb(x) # Embedding
+        x = self.emb(x)  # Embedding
         x = self.dropout_conv(x, training=training)  # Dropout
         x = tf.stack([self.conv(xi) for xi in x])  # 1D convolutions
         x = self.max_pool(x)  # Max Pooling over time
@@ -101,7 +101,7 @@ class AttentionLayer(tf.keras.layers.Layer):
         # print("S reshaped: ", S.shape)
         return S
 
-    def computeContext2QueryAttention(self, S, U):
+    def computeContext2QueryAttention(self, S, U, mask=None):
         """
         Create C2Q attention matrix: which query words are most relevant to each context word.
         :param S: similarity matrix (T x J)
@@ -110,11 +110,43 @@ class AttentionLayer(tf.keras.layers.Layer):
         """
         C2Q = tf.nn.softmax(S, axis=-1)  # attention weights on the query words
         # print("C2Q shape (T x J): ", C2Q.shape)
-        attended_query = tf.matmul(C2Q, U)
+
+        #  old one : attended_query = tf.matmul(C2Q, U)
+
         # print("attended_query shape (T x d): ", attended_query.shape)
+        U = tf.transpose(U, perm=[0, 2, 1])  # change U dims: from J x 2d to 2d x J
+
+        """ alternative way (maybe this is the good one) """
+
+        # for c2q in C2Q[0]:
+        #     matrix = tf.tile(tf.expand_dims(c2q, 0), [U.shape[-2], 1])  # repeat first row of C2Q 2d times --> 2d x J
+        #     matrix = tf.multiply(matrix, U[0])  # 2d x J (elementwise multiplication)
+        #     row = tf.reduce_sum(matrix, -1)  # 2d,
+        #     rows.append(row)
+        # final = tf.stack(rows)
+        T = S.shape[-2]
+        J = S.shape[-1]
+        C2Q = tf.reshape(C2Q, [-1, T*J])
+        attended_query = []
+        for i in range(C2Q.shape[0]):
+            a = tf.reduce_sum(tf.stack(tf.split(C2Q[i] * tf.tile(U[i], [1, T]), num_or_size_splits=T, axis=-1)), axis=-1)
+            attended_query.append(a)
+        # attended_query = tf.reshape(tf.reduce_sum(tf.stack(tf.split(C2Q * tf.tile(U, [1, 1, T]), num_or_size_splits=T, axis=-1)), axis=-1), [-1, T, U.shape[-2]])  # batch, T x 2d
+        attended_query = tf.stack(attended_query)
+        # """ """
+        # tensor = []
+        # for batch, C in enumerate(C2Q):
+        #     rows = []
+        #     for c2q in C:
+        #         row = c2q * U[batch]  # 2d x J
+        #         row = tf.reduce_sum(row, -1)  # 2d,
+        #         rows.append(row)
+        #     final = tf.stack(rows)  # T x 2d
+        #     tensor.append(final)
+        # attended_query = tf.stack(tensor)  # [batches, T, 2d]
         return attended_query
 
-    def computeQuery2ContextAttention(self, S, H):
+    def computeQuery2ContextAttention(self, S, H, mask=None):
         """
         Create Q2C attention matrix: which context words have the closest similarity to one of the query words
         and are therefore critical for answering the query.
@@ -122,13 +154,24 @@ class AttentionLayer(tf.keras.layers.Layer):
         :param H: context matrix (T x 2d)
         :return: attended_context: Q2C matrix (H̃) (T x 2d)
         """
-        Q2C = tf.nn.softmax(tf.reduce_max(S, axis=-1))
-        # print("Q2C shape (T x 1): ", Q2C.shape)
-        Q2C = tf.expand_dims(Q2C, -1)
-        attended_context = tf.matmul(Q2C, H, transpose_a=True)
-        # print("attended_context shape (1 x d): ", AttendedContext.shape)
-        attended_context = tf.tile(attended_context, [1, H.shape[-2], 1])
-        # print("attended_context shape (T x d): ", attended_context.shape)
+        # Q2C = tf.nn.softmax(addMask(tf.reduce_max(S, axis=-1), mask))
+        # # print("Q2C shape (T x 1): ", Q2C.shape)
+        # Q2C = tf.expand_dims(Q2C, -1)
+
+        # attended_context = tf.matmul(Q2C, H, transpose_a=True)
+        # # print("attended_context shape (1 x d): ", AttendedContext.shape)
+        # attended_context = tf.tile(attended_context, [1, H.shape[-2], 1])
+        # # print("attended_context shape (T x d): ", attended_context.shape)
+        """ from here new"""
+        H = tf.transpose(H, perm=[0, 2, 1])  # change U dims: from J x 2d to 2d x J
+        fin = []
+        for i in range(H.shape[0]):
+            h = tf.nn.softmax(tf.reduce_max(S[i], -1)) * H[i]
+            h = tf.reduce_sum(h, axis=1)
+            h = tf.tile(tf.expand_dims(h, 0), [S.shape[1], 1])  # tile T times --> final shapes == Tx 2d
+            fin.append(h)
+        attended_context = tf.stack(fin)
+
         return attended_context
 
     def merge(self, H, attended_query, attended_context):
@@ -149,18 +192,18 @@ class AttentionLayer(tf.keras.layers.Layer):
         # print(" G shape (T X 8d) / (T x 6d) in case of q2c ablation : ", G.shape)
         return G
 
-    def call(self, H, U, q2c_attention, c2q_attention):
+    def call(self, H, U, q2c_attention, c2q_attention, mask=None):
         # Similarity matrix (S) dimension: TxJ
         S = self.computeSimilarity(H, U)
 
         # C2Q attention
         if c2q_attention:
-            C2Q = self.computeContext2QueryAttention(S, U)
+            C2Q = self.computeContext2QueryAttention(S, U, mask)
         else:
-            C2Q = " da completare"  # to be fixed FIXME
+            C2Q = tf.tile(tf.expand_dims(tf.reduce_mean(U, 1), 1), [1, 256, 1])  # TODO check if it's ok
         # Q2C attention
         if q2c_attention:
-            Q2C = self.computeQuery2ContextAttention(S, H)
+            Q2C = self.computeQuery2ContextAttention(S, H, mask)
         else:
             Q2C = None  # to be fixed FIXME
         # Merge C2Q (Ũ) and Q2C (H̃) to obtain G
@@ -190,7 +233,7 @@ class OutputLayer(tf.keras.layers.Layer):
         M = self.dropout_out2(M, training=training)
 
         p_start = tf.matmul(tf.concat([G, M], axis=-1), self.W_start)
-        p_start = addMask(tf.squeeze(p_start,  axis=-1), None)
+        p_start = addMask(tf.squeeze(p_start, axis=-1), mask)
         # subtract by a very big number each element of the mask before apply softmax -> masked (padded) elements will be close to zero (zero prob)
         p_start = tf.nn.softmax(p_start, axis=-1)
 
@@ -200,7 +243,7 @@ class OutputLayer(tf.keras.layers.Layer):
 
         # qui dropout
         p_end = tf.matmul(tf.concat([G, M], axis=-1), self.W_end)
-        p_end = addMask(tf.squeeze(p_end,  axis=-1), None)
+        p_end = addMask(tf.squeeze(p_end, axis=-1), mask)
         p_end = tf.nn.softmax(p_end, axis=-1)
 
         return p_start, p_end
@@ -213,4 +256,3 @@ def addMask(tensor, mask):
     mask *= -1000
     tensor += mask
     return tensor
-

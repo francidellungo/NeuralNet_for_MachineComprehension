@@ -101,7 +101,8 @@ def word2vec(word, glove_dict):
     # if word not in glove dict return None -> now generate random vector
     vec = glove_dict.get(word)
     if vec is None:
-        vec = np.random.rand(100)
+        length = len(glove_dict['a'])
+        vec = np.random.rand(length)
     return vec
 
 
@@ -169,78 +170,6 @@ def read_data(source_path, evidence_path, wikipedia=True, train=True):
     # return train_data
 
 
-def read_squad_data(source_path):
-    # if verbose: print("Preprocessing squad data...")
-    dataset = json.load(open(source_path, 'r'))
-    glove_matrix = create_glove_matrix('glove.6B.100d.txt')
-
-    examples = []
-    context_words = []
-    context_chars = []
-    query_words = []
-    query_chars = []
-    answer_start_end_idx = []
-    skipped_count = 0
-    qa_skipped = 0
-
-    max_vocab_size = 0
-
-    for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
-        article_paragraphs = dataset['data'][articles_id]['paragraphs']
-
-        for par_id in range(len(article_paragraphs)):
-            context = article_paragraphs[par_id]['context']
-            # context = context.replace("''", '" ')
-            # context = context.replace("``", '" ')
-            # context = context.replace("-", ' ')
-            context = normalize_text(context)
-            context_tokens = get_words_tokens(context)
-            # print('context_tokens: ', len(context_tokens))
-            # TODO:
-            if articles_id == 21 and par_id == 69:
-                print(" ")
-            answer_map = get_char_word_loc_mapping(context, context_tokens)
-            if answer_map is None:
-                skipped_count += 1
-                qa_skipped += len(article_paragraphs[par_id]['qas'])
-                break
-            context_word_vec = [word2vec(word, glove_matrix) for word in context_tokens]
-            # context_char_vec = char2vec(context_tokens)
-            context_char_vec, max_emb = char2vec_v2(context_tokens)
-            if max_emb > max_vocab_size: max_vocab_size = max_emb
-
-            qas = article_paragraphs[par_id]['qas']
-            for qid in range(len(qas)):
-                question = qas[qid]['question']
-                question_tokens = get_words_tokens(question)
-                question_word_vec = [word2vec(word, glove_matrix) for word in question_tokens]
-                question_char_vec, max_emb = char2vec_v2(question_tokens)
-                if max_emb > max_vocab_size: max_vocab_size = max_emb
-                # print('question_word_vec: ', len(question_word_vec), len(question_word_vec[0]))
-                query_words.append(question_word_vec)
-                query_chars.append(question_char_vec)
-
-                ans_id = 0
-                answer = qas[qid]['answers'][ans_id]['text']
-                answer_start = qas[qid]['answers'][ans_id]['answer_start']
-                answer_end = answer_start + len(answer)
-
-                answer_tokens = get_words_tokens(answer)
-                last_word_answer = len(answer_tokens[-1])
-                a_start_idx = int(answer_map[answer_start][1])
-                a_end_idx = int(answer_map[answer_end - last_word_answer][1])
-                answer_start_end_idx.append([a_start_idx, a_end_idx])
-
-                context_words.append(context_word_vec)
-                context_chars.append(context_char_vec)
-
-                examples.append(([context_word_vec, context_char_vec, question_word_vec, question_char_vec],
-                                 [answer_start, answer_end]))
-    print("skipped elements:", skipped_count)
-    print("total qa skipped: ", qa_skipped)
-    return examples, context_words, context_chars, query_words, query_chars, answer_start_end_idx, max_vocab_size + 1, skipped_count
-
-
 def read_squad_data_v2(source_path):
     # if verbose: print("Preprocessing squad data...")
     dataset = json.load(open(source_path, 'r'))
@@ -258,8 +187,8 @@ def read_squad_data_v2(source_path):
     chars_dict = create_char_dict()
     # error = False
 
-    for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
-    # for articles_id in tqdm(range(4), desc='Preprocessing squad dataset'):
+    # for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
+    for articles_id in tqdm(range(1), desc='Preprocessing squad dataset'):
         article_paragraphs = dataset['data'][articles_id]['paragraphs']
 
         for par_id in range(len(article_paragraphs)):
@@ -360,6 +289,148 @@ def read_squad_data_v2(source_path):
     # # context_chars = np.delete(context_chars, idx_to_remove, 0)
     # # query_words = np.delete(query_words, idx_to_remove, 0)
     # # query_chars = np.delete(query_chars, idx_to_remove, 0)
+
+    return pad_context_words, context_chars, query_words, query_chars, new_answer_start_end_idx, len(
+        chars_dict), skipped_count
+
+
+def read_squad_dev(source_path):
+    dataset = json.load(open(source_path, 'r'))
+    glove_matrix = create_glove_matrix('glove.6B.100d.txt')
+
+    context_words = []
+    context_chars = []
+    query_words = []
+    query_chars = []
+    answer_start_end_idx = []
+    skipped_count = 0
+
+    chars_dict = create_char_dict()
+
+    # for articles_id in tqdm(range(len(dataset['data'])), desc='Preprocessing squad dataset'):
+    for articles_id in tqdm(range(1), desc='Preprocessing squad dataset'):
+        article_paragraphs = dataset['data'][articles_id]['paragraphs']
+
+        for par_id in range(len(article_paragraphs)):
+            context = article_paragraphs[par_id]['context']
+            context = normalize_text(context)
+            context_tokens = get_words_tokens(context)
+
+            answer_map = get_char_word_loc_mapping(context, context_tokens)
+            context_word_vec = [word2vec(word, glove_matrix) for word in context_tokens]
+            # context_char_vec = char2vec(context_tokens)
+            context_char_vec = char2vec(context_tokens, chars_dict)
+
+            qas = article_paragraphs[par_id]['qas']
+            for qid in range(len(qas)):
+                question = qas[qid]['question']
+                question_tokens = get_words_tokens(question)
+                question_word_vec = [word2vec(word, glove_matrix) for word in question_tokens]
+                question_char_vec = char2vec(question_tokens, chars_dict)
+
+                # ans_id = 0
+                answers = []
+                for ans in qas[qid]['answers']:
+                    answer = ans['text']
+                    answer_start = ans['answer_start']
+                    answer_end = answer_start + len(answer)
+
+
+                    # answer_tokens = get_words_tokens(answer)
+                    # last_word_answer = len(answer_tokens[-1])
+                    try:
+                        a_start_idx = int(answer_map[answer_start][1])
+                        a_end_idx = int(answer_map[answer_end - 1][1])
+                    except KeyError:
+                        skipped_count += 1
+                        continue
+                    except TypeError:
+                        skipped_count += 1
+                        continue
+
+                    if question_char_vec.shape[-1] < 5:  # if word
+                        continue
+                    answers.append([a_start_idx, a_end_idx])
+
+                # any answer given for this question
+                if not answers:
+                    continue
+
+                # less than 3 answers given
+                if len(answers) < 3:
+                    while len(answers) < 3:
+                        answers.append(answers[-1])
+
+                # more than 3 answers given
+                elif len(answers) > 3:
+                    while len(answers) > 3:
+                        answers.remove(answers[-1])
+
+                answer_start_end_idx.append(answers)
+
+                query_words.append(question_word_vec)
+                query_chars.append(np.array(question_char_vec, dtype='float32'))
+
+                context_words.append(context_word_vec)
+                context_chars.append(np.array(context_char_vec, dtype='float32'))
+
+    print("skipped elements:", skipped_count)
+    max_words_context = 256
+    max_chars_context = 30
+
+    # adjust start end answer indexes
+    context_words_lens = np.array([len(c) for c in context_words])  # list of lengths
+    words_dist = max_words_context - context_words_lens
+    words_dist = tf.keras.backend.repeat_elements(tf.convert_to_tensor(words_dist, dtype='int16'), 2*len(answer_start_end_idx[0]), 0)
+    words_dist = tf.reshape(words_dist, [-1,len(answer_start_end_idx[0]), 2])
+    new_answer_start_end_idx = (tf.constant(answer_start_end_idx, dtype='int16') + words_dist).numpy()
+
+    # check if new answers indexes are less than zero
+    minor = tf.math.less(new_answer_start_end_idx[:, :, 0], 0)  # check if new answ indexes are less than zero
+    minor = tf.cast(minor, 'int16')
+    minor = tf.math.reduce_max(minor, 1)
+    minor = tf.squeeze(tf.where(minor)).numpy()  # get indexes of elements less than the threshold
+
+    answer_start_end_idx = tf.constant(answer_start_end_idx)
+    idx_to_remove = []
+    for idx in minor:
+        start = max(0, min(answer_start_end_idx[idx, :, 0]) - 20)
+        end = min(start + max_words_context, len(context_words[idx]))
+        if max(answer_start_end_idx[idx, :,1]) > end:
+            idx_to_remove.append(idx)
+            continue
+        # remove only answers > len(context)
+        # for e_idx, e in enumerate(answer_start_end_idx[idx, :, 1]):
+        #     if e > end:
+                # answ_list = tf.unstack(answer_start_end_idx[idx])
+                # del answ_list[e]
+                # answer_start_end_idx = tf.stack(answ_list)
+        # use np array
+
+        context_words[idx] = context_words[idx][start: end]
+        context_chars[idx] = context_chars[idx][start: end]
+        new_answer_start_end_idx[idx] = answer_start_end_idx[idx] - start
+
+    # remove unwanted elements (where answer > end)
+    print('{} elements to be removed in dev'.format(len(idx_to_remove)))
+    idx_to_remove.reverse()
+    new_answer_start_end_idx = np.delete(new_answer_start_end_idx, idx_to_remove, 0)
+    for i in idx_to_remove:
+        del context_words[i]
+        del context_chars[i]
+        del query_words[i]
+        del query_chars[i]
+
+    # TODO adjust multiple answers not all in context
+    # do padding and trunc
+    pad_context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
+                                                                      maxlen=max_words_context)
+
+    context_chars = pad3dSequence(context_chars, max_words=max_words_context, chars_maxlen=max_chars_context)
+    print('context_chars shape:', context_chars.shape)
+    query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
+    query_chars = pad3dSequence(query_chars)
+
 
     return pad_context_words, context_chars, query_words, query_chars, new_answer_start_end_idx, len(
         chars_dict), skipped_count
@@ -603,60 +674,6 @@ def readSquadDataPadding(dataset, glove_matrix, article_start=0, article_end=Non
     return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(
         chars_dict), skipped_count, num_context_words, num_query_words, context_chars_lens, query_chars_lens
 
-    # write validation elements to file
-    # if is_validation_set:
-    #     with open('data.txt', 'w') as outfile:
-    #         json.dump(dataset_info_list, outfile)
-
-    # statistics = plotHistogramOfLengths([num_context_words, num_query_words, context_chars_lens, query_chars_lens],
-    #                                     ['num_context_words', 'num_query_words', 'context_chars_lens',
-    #                                      'query_chars_lens'], is_validation_set)
-    #
-    # # pad all to create tensors FIXME
-    # max_words_context = int((statistics['num_context_words']['max'] + statistics['num_context_words']['mean']) / 2)
-    # max_chars_context = int((statistics['context_chars_lens']['max'] + statistics['context_chars_lens']['mean']) / 2)
-    # print('max_words_context: ', max_words_context)
-    # print('max_chars_context: ', max_chars_context)
-    #
-    # # check if answer idx is > than max_words
-    # idx_to_remove = [idx for idx, el in enumerate(answer_start_end_idx) if
-    #                  el[0] > max_words_context or el[1] > max_words_context]
-    # for i in idx_to_remove:
-    #     del context_words[i]
-    #     del context_chars[i]
-    #     del query_words[i]
-    #     del query_chars[i]
-    #     del answer_start_end_idx[i]
-    #
-    # context_words = tf.keras.preprocessing.sequence.pad_sequences(context_words, dtype="float32",
-    #                                                               maxlen=max_words_context)
-    # print('context_words shape:', context_words.shape)
-    # # context_chars = tf.ragged.constant(context_chars, dtype='float32').to_tensor()
-    # context_chars = pad3dSequence(context_chars, max_words=max_words_context, chars_maxlen=max_chars_context)
-    # print('context_chars shape:', context_chars.shape)
-    # # context_chars = tf.keras.preprocessing.sequence.pad_sequences(context_chars, dtype="float32")
-    # query_words = tf.keras.preprocessing.sequence.pad_sequences(query_words, dtype="float32")
-    # # query_chars = tf.ragged.constant(query_chars, dtype='float32').to_tensor()
-    # query_chars = pad3dSequence(query_chars)
-
-    # print('conversion to tensors done, len context_words: {}, numbers words in each context: {}'.format(
-    #     len(context_words), max_words_context))
-    #
-    # # save preprocessed data
-    # if verbose: print('Saving data')
-    # # TODO adjust len(...)
-    # filename = './save/{}/training_set'.format(len(context_words)) if not is_validation_set else './save/{}/validation_set'.format(len(context_words))
-    # if not os.path.exists(filename):
-    #     os.makedirs(filename)
-    # savePickle(os.path.join(filename, 'context_words'), context_words)
-    # savePickle(os.path.join(filename, 'context_chars'), context_chars)
-    # savePickle(os.path.join(filename, 'query_words'), query_words)
-    # savePickle(os.path.join(filename, 'query_chars'), query_chars)
-    # savePickle(os.path.join(filename, 'answer_start_end_idx'), answer_start_end_idx)
-    #
-    #
-    # return context_words, context_chars, query_words, query_chars, answer_start_end_idx, len(chars_dict), skipped_count
-
 
 def getPreprocessedDataset(dim, training_set=True):
     path = os.path.join('save', 'training_set' if training_set else 'validation_set', str(dim))
@@ -717,7 +734,6 @@ def tokenize(sequence):
 #     for space_separated_fragment in sentence.strip().split():
 #         words.extend(re.split(" ", space_separated_fragment))
 #     return [w for w in words if w]
-
 
 def get_char_word_loc_mapping(context, context_tokens):
     """
@@ -781,134 +797,3 @@ def get_char_word_loc_mapping(context, context_tokens):
 
 def write_to_file(out_file, line):
     out_file.write(line.encode('utf8') + '\n')
-
-# def read_write_dataset(dataset, tier, prefix):
-#     """Reads the dataset, extracts context, question, answer,
-#     and answer pointer in their own file. Returns the number
-#     of questions and answers processed for the dataset"""
-#     qn, an = 0, 0
-#     skipped = 0
-#
-#     with open(os.path.join(prefix, tier + '.context'), 'w') as context_file, \
-#             open(os.path.join(prefix, tier + '.question'), 'w') as question_file, \
-#             open(os.path.join(prefix, tier + '.answer'), 'w') as text_file, \
-#             open(os.path.join(prefix, tier + '.span'), 'w') as span_file:
-#
-#         for articles_id in tqdm(range(len(dataset['data'])), desc="Preprocessing {}".format(tier)):
-#             article_paragraphs = dataset['data'][articles_id]['paragraphs']
-#             for pid in range(len(article_paragraphs)):
-#                 context = article_paragraphs[pid]['context']
-#                 # The following replacements are suggested in the paper
-#                 # BidAF (Seo et al., 2016)
-#                 context = context.replace("''", '" ')
-#                 context = context.replace("``", '" ')
-#
-#                 context_tokens = tokenize(context)
-#                 answer_map = token_idx_map(context, context_tokens)
-#
-#                 qas = article_paragraphs[pid]['qas']
-#                 for qid in range(len(qas)):
-#                     question = qas[qid]['question']
-#                     question_tokens = tokenize(question)
-#
-#                     answers = qas[qid]['answers']
-#                     qn += 1
-#
-#                     num_answers = range(1)
-#
-#                     for ans_id in num_answers:
-#                         # it contains answer_start, text
-#                         text = qas[qid]['answers'][ans_id]['text']
-#                         a_s = qas[qid]['answers'][ans_id]['answer_start']
-#
-#                         text_tokens = tokenize(text)
-#
-#                         answer_start = qas[qid]['answers'][ans_id]['answer_start']
-#
-#                         answer_end = answer_start + len(text)
-#
-#                         last_word_answer = len(text_tokens[-1])  # add one to get the first char
-#
-#                         try:
-#                             a_start_idx = answer_map[answer_start][1]
-#
-#                             a_end_idx = answer_map[answer_end - last_word_answer][1]
-#
-#                             # remove length restraint since we deal with it later
-#                             context_file.write(' '.join(context_tokens) + '\n')
-#                             question_file.write(' '.join(question_tokens) + '\n')
-#                             text_file.write(' '.join(text_tokens) + '\n')
-#                             span_file.write(' '.join([str(a_start_idx), str(a_end_idx)]) + '\n')
-#
-#                         except Exception as e:
-#                             skipped += 1
-#
-#                         an += 1
-#
-#     print("Skipped {} question/answer pairs in {}".format(skipped, tier))
-#     return qn, an
-
-
-# text = "the top-five 4.5$ legend \"Venite Ad Me Omnes\" super. z."
-
-# text2 = "jay z."
-# # text= 'Hello, my name is "Francesca" and i don't like vegetables'
-# # text = text.replace("-", ' ')
-# textnorm = normalize_text(text)
-# tokens = get_words_tokens(textnorm)
-# mapidx = get_char_word_loc_mapping(textnorm, tokens)
-# print(tokens, '\n', mapidx)
-# print(nltk.word_tokenize(text))
-#
-# textnorm = normalize_text(text2)
-# tokens = get_words_tokens(textnorm)
-# mapidx = get_char_word_loc_mapping(textnorm, tokens)
-# print(tokens, '\n', mapidx)
-#
-# print(nltk.word_tokenize(text2))
-
-# source_path = "./dataset/squad/downloads/rajpurkar_SQuAD-explorer_train-v1.1NSdmOYa4KVr09_zf8bof8_ctB9YaIPSHyyOKbvkv2VU.json"
-# example_source_path = "./dataset/squad/downloads/squad-example.json"
-#
-# x, y = read_squad_data(example_source_path)
-
-
-# data_prefix = os.path.join("data", "squad")
-# if not os.path.exists(data_prefix):
-#     os.makedirs(data_prefix)
-#
-# train_num_questions, train_num_answers = read_write_dataset(data, 'train', data_prefix)
-# print(train_num_questions, train_num_answers)
-
-# qn, an = read_write_dataset()
-# text = "Hello, my name is Francesca and I came from Florence. I don't like vegetables. Bye bye!!"
-# text = normalize_text(text)
-# words, _ = get_words_tokens(text)
-# print(words)
-# chars = char2vec(words)
-# print(chars)
-
-
-# emb_dict = create_glove_matrix('glove.6B.50d.txt')
-# print(emb_dict['hello'])
-# print(word2vec('hello', emb_dict))
-
-# source_path = './dataset/qa/web-example.json'
-# data_list = read_data(source_path)
-# print("Where in England was Dame Judi Dench born?\n")
-# print(data_list)
-# print(len(data_list['Question']['Word_emb']))
-
-# text = "Wilhelm W\u00fcrfel and jay-z Where in England was Dame Judi Dench born? Zeitung praised his \"wealth of musical ideas\ "
-# tokens = get_words_tokens(text)
-# print(tokens)
-# print(process_tokens(tokens))
-# print([process_tokens(token) for token in tokens])
-
-# source = "dataset/qa/web-example.json"
-# evidence = "dataset/evidence"
-# data = read_data(source, evidence)
-# print(len(data), len(data[0]), len(data[0][0]), len(data[0][0][0]), len(data[0][0][0][0]))
-# print(len(data), len(data[0]), len(data[0][0]), len(data[0][0][1]), len(data[0][0][1][0]))
-# data = np.array(data)
-# print(data.shape)

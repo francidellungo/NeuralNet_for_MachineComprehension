@@ -133,8 +133,8 @@ class BiDafModel(tf.keras.Model):
                                                               verbose)  # , batch, end_idx - start_idx)
 
                 epoch_loss_v.append(val_batch_loss)
-                epoch_em_score_v.append(em_metric(y_true, y_pred))
-                epoch_f1_score_v.append(f1_metric(y_true, y_pred))
+                epoch_em_score_v.append(em_metric(y_true, y_pred, dev_set=True))
+                epoch_f1_score_v.append(f1_metric(y_true, y_pred, dev_set=True))
 
                 # # validation metrics
                 # val_em = em_metric(y_val, y_pred)
@@ -302,12 +302,19 @@ class BiDafModel(tf.keras.Model):
         return y_pred
 
     def call_t(self, c_word_input, c_char_input, q_word_input, q_char_input, use_char_emb, use_word_emb,
-               q2c_attention, c2q_attention, training=False, verbose=False, batch_idx=0, batch_dim=0):
+               q2c_attention, c2q_attention, training=False, verbose=False, batch_idx=0, batch_dim=0, mask=False):
         # first c stands for context second for char, q stands for query
 
         assert use_char_emb or use_word_emb, "at least one of the two embedding must be used"
         c_word_input = tf.keras.layers.Masking(mask_value=0)(c_word_input)
         q_word_input = tf.keras.layers.Masking(mask_value=0)(q_word_input)
+
+        if mask:
+            c_mask = c_word_input._keras_mask
+            q_mask = q_word_input._keras_mask
+        else:
+            c_mask = None
+            q_mask = None
 
         if use_char_emb:
             # get character level representation of each word
@@ -335,17 +342,14 @@ class BiDafModel(tf.keras.Model):
 
         # if verbose: print("{}: biLSTM".format(i))
         # Contextual Embedding Layer (bidirectional LSTM)
-        H = self.bi_lstm(context, training=training) #, mask=c_word_input._keras_mask)  # use mask here
-        U = self.bi_lstm(query, training=training) # , mask=q_word_input._keras_mask)
+        H = self.bi_lstm(context, training=training, mask=c_mask)  # use mask here
+        U = self.bi_lstm(query, training=training, mask=q_mask)
         # context matrix (H) dimension: 2d x T, query matrix (U) dimension: 2d x J
-
-        # H = tf.squeeze(H, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
-        # U = tf.squeeze(U, [0])
 
         # if verbose: print("{}: attention".format(i))
         # Attention Layer -> G matrix (T x 8d)
         # TODO use mask here maybe
-        G, similarity_matrix = self.attention(H, U, q2c_attention, c2q_attention)
+        G, similarity_matrix = self.attention(H, U, q2c_attention, c2q_attention, mask=c_mask)
 
         # TODO fixme
         # if training is False:
@@ -360,16 +364,14 @@ class BiDafModel(tf.keras.Model):
 
         # if verbose: print("{}: modeling layer".format(i))
         # TODO use mask here
-        M = self.modeling_layer2(self.modeling_layer1(G, training=training), training=training) #, mask=c_word_input._keras_mask)
+        M = self.modeling_layer2(self.modeling_layer1(G, training=training, mask=c_mask), training=training, mask=c_mask)
 
         # print("M shape (T x 2d): ", M.shape)
         # M = tf.squeeze(M, [0])  # Removes dimensions of size 1 from the shape of a tensor. (in position 0)
 
         # if verbose: print("{}: output layer".format(i))
-        p_start, p_end = self.output_layer_(M, G, c_word_input._keras_mask, training)
+        p_start, p_end = self.output_layer_(M, G, c_mask, training)
         # print("output dims: (T, 1) :", p_start.shape, p_end.shape)
-        # print("output layer: p start: {}, p end: {}".format(p_start, p_end))
-        # y_pred.append()
 
         return [p_start, p_end]
 

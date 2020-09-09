@@ -12,36 +12,71 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 epsilon = 10e-5
 
 
-def em_metric(y_true, y_pred):
+def em_metric(y_true, y_pred, dev_set=False):
     # print("compute em score")
     start, end = 0, 1
     em_count = 0
     assert len(y_true) > 0
-    for batch_idx, (y_true_start, y_true_end) in enumerate(y_true):
-        # start_idx, end_idx = get_answer(y_pred[batch_idx][0], y_pred[batch_idx][1])
-        start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
-        # print("{}-> start (true-pred):{}-{}; end (true-pred):{}-{}".format(batch_idx, y_true_start, start_idx, y_true_end, end_idx))
-        if start_idx == y_true_start and end_idx == y_true_end:
-            em_count += 1
+
+    # dev set
+    if dev_set:
+        for batch_idx, y_true_i in enumerate(y_true):
+            start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
+            count = [1 if (start_idx==y[0] and end_idx==y[1]) else 0 for y in y_true_i]
+            if max(count):
+                em_count += 1
+
+    # training set
+    else:
+        for batch_idx, (y_true_start, y_true_end) in enumerate(y_true):
+            # start_idx, end_idx = get_answer(y_pred[batch_idx][0], y_pred[batch_idx][1])
+            start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
+            # print("{}-> start (true-pred):{}-{}; end (true-pred):{}-{}".format(batch_idx, y_true_start, start_idx, y_true_end, end_idx))
+            if start_idx == y_true_start and end_idx == y_true_end:
+                em_count += 1
+
     return 100 * em_count / len(y_true)
 
 
-def f1_metric(y_true, y_pred):
+def f1_metric(y_true, y_pred, dev_set=False):
     # print("compute f1 score")
     start, end = 0, 1
     f1_score = 0
-    for batch_idx, (y_true_start, y_true_end) in enumerate(y_true):
-        start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
 
-        list_true = list(range(y_true_start, y_true_end + 1))
-        list_pred = list(range(start_idx, end_idx + 1))
-        num_same = len(set(list_true).intersection(list_pred))  # num common tokens predicted
-        assert len(list_pred) > 0 and len(list_true) > 0, "lists of predicted elements is empty, in f1 metric"
-        if num_same != 0:
-            precision = 1.0 * num_same / len(list_pred)
-            recall = 1.0 * num_same / len(list_true)
-            f1 = (2 * precision * recall) / (precision + recall)
-            f1_score += f1
+    # dev set
+    if dev_set:
+        for batch_idx, y_true_i in enumerate(y_true):
+            start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
+
+            f1_temp = []
+            f1_temp.append(0)  # initialize if num same == 0
+            for i in y_true_i:
+                list_true = list(range(i[0], i[1] + 1))
+                list_pred = list(range(start_idx, end_idx + 1))
+                num_same = len(set(list_true).intersection(list_pred))  # num common tokens predicted
+                assert len(list_pred) > 0 and len(list_true) > 0, "lists of predicted elements is empty, in f1 metric"
+                if num_same != 0:
+                    precision = 1.0 * num_same / len(list_pred)
+                    recall = 1.0 * num_same / len(list_true)
+                    f1 = (2 * precision * recall) / (precision + recall)
+                    f1_temp.append(f1)
+
+            f1_score += max(f1_temp)
+
+    # training set
+    else:
+        for batch_idx, (y_true_start, y_true_end) in enumerate(y_true):
+            start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
+
+            list_true = list(range(y_true_start, y_true_end + 1))
+            list_pred = list(range(start_idx, end_idx + 1))
+            num_same = len(set(list_true).intersection(list_pred))  # num common tokens predicted
+            assert len(list_pred) > 0 and len(list_true) > 0, "lists of predicted elements is empty, in f1 metric"
+            if num_same != 0:
+                precision = 1.0 * num_same / len(list_pred)
+                recall = 1.0 * num_same / len(list_true)
+                f1 = (2 * precision * recall) / (precision + recall)
+                f1_score += f1
     return 100 * f1_score / len(y_true)
 
 
@@ -79,6 +114,11 @@ def computeLossTensors(y_true, y_pred):
     start, end = 0, 1
     y_true_start_idx = []
     y_true_end_idx = []
+
+    # fixed for dev set
+    if len(y_true.shape) == 3:
+        y_true = y_true[:, 0]
+
     for batch_idx in range(len(y_true)):
         y_true_start_idx.append([batch_idx, y_true[batch_idx][start]])
         y_true_end_idx.append([batch_idx, y_true[batch_idx][end]])
