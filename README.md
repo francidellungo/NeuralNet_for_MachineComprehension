@@ -1,5 +1,5 @@
-# Neural Networks for Machine Reading Comprehension
-Machine Comprehension / Machine Reading Comprehension models enable computers
+# Neural Nets for Machine Reading Comprehension (BiDAF)
+Machine Comprehension (MC)/ Machine Reading Comprehension (MRC) / Question Answering (QA) models enable computers
 to read a document and answer general questions against it.
  While this is a relatively elementary task for a human,
   it's not that straightforward for AI models. 
@@ -8,6 +8,16 @@ to read a document and answer general questions against it.
  
 ## Model 
  ![alt text](https://github.com/francidellungo/NeuralNet_for_MachineComprehension/blob/master/readme_imgs/bidaf.png?raw=true)
+
+Layers of the model:
+1) **Embedding layers** (3 levels of granularity):
+    * Character embedding layer
+    * Word embedding layer
+    * Contextual embedding layer 
+2) **Attention** and **Modeling layers**: fuse information from context and query
+3) **Output layer**: get start and end indexes
+
+* See the original implementation of [BiDAF](https://github.com/allenai/bi-att-flow).
 ## Dataset
 Dataset used [[1]](#TriviaQA). \
 Create new directory: `mkdir dataset`\
