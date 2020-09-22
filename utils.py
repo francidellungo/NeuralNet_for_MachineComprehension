@@ -12,7 +12,16 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'  # or any {'0', '1', '2'}
 epsilon = 10e-5
 
 
-def em_metric(y_true, y_pred, dev_set=False):
+def em_metric(y_true, y_pred, dev_set=False, dataset="squad"):
+    # print("compute em score")
+    if dataset == "squad":
+        em_score = emSquad(y_true, y_pred, dev_set=dev_set)
+    else:
+        em_score = emTrivia(y_true, y_pred)
+    return em_score
+
+
+def emSquad(y_true, y_pred, dev_set=False):
     # print("compute em score")
     start, end = 0, 1
     em_count = 0
@@ -22,7 +31,7 @@ def em_metric(y_true, y_pred, dev_set=False):
     if dev_set:
         for batch_idx, y_true_i in enumerate(y_true):
             start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
-            count = [1 if (start_idx==y[0] and end_idx==y[1]) else 0 for y in y_true_i]
+            count = [1 if (start_idx == y[0] and end_idx == y[1]) else 0 for y in y_true_i]
             if max(count):
                 em_count += 1
 
@@ -38,7 +47,30 @@ def em_metric(y_true, y_pred, dev_set=False):
     return 100 * em_count / len(y_true)
 
 
-def f1_metric(y_true, y_pred, dev_set=False):
+def emTrivia(y_true, y_pred):
+    # print("compute em score")
+    start, end = 0, 1
+    em_count = 0
+    assert len(y_true) > 0
+
+    for batch_idx, (y_true_start, y_true_end) in enumerate(y_true):
+        start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
+        if start_idx == y_true_start and end_idx == y_true_end:
+            em_count += 1
+
+    return 100 * em_count / len(y_true)
+
+
+def f1_metric(y_true, y_pred, dev_set=False, dataset="squad"):
+    # print("f1 score")
+    if dataset == "squad":
+        f1_score = f1Squad(y_true, y_pred, dev_set=dev_set)
+    else:
+        f1_score = f1Trivia(y_true, y_pred)
+    return f1_score
+
+
+def f1Squad(y_true, y_pred, dev_set=False):
     # print("compute f1 score")
     start, end = 0, 1
     f1_score = 0
@@ -77,6 +109,26 @@ def f1_metric(y_true, y_pred, dev_set=False):
                 recall = 1.0 * num_same / len(list_true)
                 f1 = (2 * precision * recall) / (precision + recall)
                 f1_score += f1
+    return 100 * f1_score / len(y_true)
+
+
+def f1Trivia(y_true, y_pred):
+    # print("compute f1 score")
+    start, end = 0, 1
+    f1_score = 0
+
+    for batch_idx, (y_true_start, y_true_end) in enumerate(y_true):
+        start_idx, end_idx = get_answer(y_pred[start][batch_idx], y_pred[end][batch_idx])
+
+        list_true = list(range(y_true_start, y_true_end + 1))
+        list_pred = list(range(start_idx, end_idx + 1))
+        num_same = len(set(list_true).intersection(list_pred))  # num common tokens predicted
+        assert len(list_pred) > 0 and len(list_true) > 0, "lists of predicted elements is empty, in f1 metric"
+        if num_same != 0:
+            precision = 1.0 * num_same / len(list_pred)
+            recall = 1.0 * num_same / len(list_true)
+            f1 = (2 * precision * recall) / (precision + recall)
+            f1_score += f1
     return 100 * f1_score / len(y_true)
 
 
@@ -174,7 +226,6 @@ def pad3dSequence(seq, max_words=None, chars_maxlen=None, padding='pre', trunc='
         else:
             context_i = np.pad(context_i, ((0, pad_context_i), (0, pad_word_i)))  # padding post
 
-
         # pad = max(len(context_i[0]), chars_maxlen) - len(context_i[0])
         # pad = len(i[0]) - min(len(i[0]), chars_maxlen)
 
@@ -190,7 +241,7 @@ def pad3dSequence(seq, max_words=None, chars_maxlen=None, padding='pre', trunc='
         if trunc == 'pre':
             context_i = context_i[start_context:, start_word:]
         else:
-            if start_context != 0 and start_word !=0:
+            if start_context != 0 and start_word != 0:
                 context_i = context_i[:-start_context, :-start_word]
             elif start_context == 0 and start_word == 0:
                 context_i = context_i[:, :]
@@ -198,9 +249,6 @@ def pad3dSequence(seq, max_words=None, chars_maxlen=None, padding='pre', trunc='
                 context_i = context_i[:, :-start_word]
             else:  # word start == 0:
                 context_i = context_i[:-start_context, :]
-
-
-
 
         t.append(context_i)
 
@@ -224,71 +272,6 @@ def shuffle(context_words, context_chars, query_words, query_chars, answer_start
         answer_start_end_idx) == np.ndarray else answer_start_end_idx.numpy()
 
     return sklearn.utils.shuffle(context_words, context_chars, query_words, query_chars, answer_start_end_idx)
-
-
-# def shuffleDataset(list_of_data):
-#     x = list_of_data[0]  # get first element
-#     indices = tf.range(start=0, limit=tf.shape(x)[0], dtype=tf.int32)
-#     shuffled_indices = tf.random.shuffle(indices)  # define shuffled order
-#     for el in range(len(list_of_data)):
-#         list_of_data[el] = tf.gather(list_of_data[el], shuffled_indices)
-#     return list_of_data
-
-
-def plotHistogramOfLengths(data_sets, data_labels, is_validation_set):
-    import matplotlib.pyplot as plt
-
-    statistics = {}
-    number_of_bins = 10
-    for idx, data in enumerate(data_sets):
-        plt.clf()
-        fig = plt.figure()
-        plt.hist(data, number_of_bins, alpha=0.5, label=data_labels[idx])
-        print('{}: max: {}, min: {}, mean:{}'.format(data_labels[idx], np.max(data_sets[idx]), np.min(data_sets[idx]),
-                                                     np.mean(data_sets[idx])))
-        # update statistics
-        statistics[data_labels[idx]] = {'min': np.min(data_sets[idx]), 'max': np.max(data_sets[idx]),
-                                        'mean': np.mean(data_sets[idx])}
-        plt.gca().set(title='Length Histogram', ylabel='Frequency', xlabel='Words length')
-        plt.legend(loc='upper right')
-        # plt.show()
-        if is_validation_set:
-            path = './fig/val/'
-        else:
-            path = './fig/train/'
-        path = path + data_labels[idx]
-        fig.savefig(path)
-        # eventually save figures with plt.savefig(path/image.png)
-    return statistics
-
-
-def plotAttentionMatrix(matrix, el_idx, dataset_info_path, labelsx=None, labelsy=None):
-    import numpy as np
-    import matplotlib.pyplot as plt
-
-    fig, ax = plt.subplots()
-    im = ax.imshow(matrix)
-
-    # We want to show all ticks...
-    # ax.set_xticks(np.arange(len(labelsy)))
-    # ax.set_yticks(np.arange(len(labelsx)))
-    # ... and label them with the respective list entries
-    # ax.set_xticklabels(labelsy)
-    # ax.set_yticklabels(labelsx)
-
-    # Rotate the tick labels and set their alignment.
-    plt.setp(ax.get_xticklabels(), rotation=45, ha="right",
-             rotation_mode="anchor")
-
-    # Loop over data dimensions and create text annotations.
-    # for i in range(len(labelsx)):
-    #     for j in range(len(labelsy)):
-    #         text = ax.text(j, i, matrix[i, j],
-    #                        ha="center", va="center", color="w")
-
-    ax.set_title("Attention matrix")
-    fig.tight_layout()
-    plt.show()
 
 
 def getMaxKValues(x, k):
@@ -323,21 +306,3 @@ def loadPickle(filename):
     # obj = pickle.load(infile)
     # infile.close()
     # return obj
-
-
-##  ---------------------  ##
-
-matrix = np.array([[0.8, 2.4, 2.5, 3.9, 0.0, 4.0, 0.0, 0, 4.0, 0.0, 0],
-                   [2.4, 0.0, 4.0, 1.0, 2.7, 0.0, 0.0, 0.0, 4.0, 0.0, 0],
-                   [1.1, 2.4, 0.8, 4.3, 1.9, 4.4, 0.0, 0.0, 4.0, 0.0, 0],
-                   [0.6, 0.0, 0.3, 0.0, 3.1, 0.0, 0.0, 0.0, 4.0, 0.0, 0],
-                   [0.7, 1.7, 0.6, 2.6, 2.2, 6.2, 0.0, 10.0, 4.0, 0.0, 0],
-                   [1.3, 1.2, 0.0, 0.0, 0.0, 3.2, 5.1, 0.0, 4.0, 0.0, 0],
-                   [0.1, 2.0, 0.0, 1.4, 0.0, 1.9, 6.3, 0.0, 4.0, 0.0, 0]])
-# print(matrix.shape)
-labelsx = ["cucumber", "tomato", "lettuce", "asparagus",
-           "potato", "wheat", "barley"]
-labelsy = ["Farmer Joe", "Upland Bros.", "Smith Gardening",
-           "Agrifun", "Organiculture", "BioGoods Ltd.", "Cornylee Corp.", "A"]
-
-# plotAttentionMatrix(matrix, labelsx, labelsy)

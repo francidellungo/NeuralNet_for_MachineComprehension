@@ -5,14 +5,17 @@ to read a document and answer general questions against it.
   it's not that straightforward for AI models. 
 
 [Interactive demo](http://allgood.cs.washington.edu:1995/) by the authors of  the paper [[2]](#RNN).
-  
+ 
+## Model 
+ ![alt text](https://github.com/francidellungo/NeuralNet_for_MachineComprehension/blob/master/readme_imgs/bidaf.png?raw=true)
 ## Dataset
 Dataset used [[1]](#TriviaQA). \
 Create new directory: `mkdir dataset`\
+Create new directory for TriviaQA dataset: `mkdir dataset/triviaqa`\
 The data can be downloaded from the [TriviaQA website](http://nlp.cs.washington.edu/triviaqa/) or 
 with: `wget https://nlp.cs.washington.edu/triviaqa/data/triviaqa-rc.tar.gz`
 
-and extract with: `tar -xf triviaqa-rc.tar.gz -C dataset`
+and extract with: `tar -xf triviaqa-rc.tar.gz -C dataset/triviaqa`
 
 
 ### SQuAD dataset (1.1 version)
