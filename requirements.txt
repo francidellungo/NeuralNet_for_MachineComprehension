@@ -1,5 +1,5 @@
 tensorflow-gpu>=2.0.3
-numpy==1.18.1
+numpy==1.22.0
 nltk==3.4.5
 tqdm==4.46.0
 matplotlib==3.2.2
